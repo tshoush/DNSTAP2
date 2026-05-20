@@ -1,135 +1,143 @@
-# dnstap2
+# DNSTAP2
 
-A small **dnstap collector and parser** in Python — receives Frame Streams from a DNS server (InfoBlox NIOS, BIND, Unbound, Knot) over a UNIX socket or TCP, decodes the dnstap payloads, and forwards structured events to a sink (stdout, JSON file, or Splunk HEC).
+Native, no-Docker pipeline for capturing DNS query telemetry from **InfoBlox NIOS** via **dnstap** and shipping it to **Splunk** + **Prometheus**.
 
-Built as a **Phase-1 lab artifact** for the InfoBlox dnstap proposal. The goal here is not a production collector — it is a small, readable reference implementation we can use to:
+> Built to replace reactive DNS query logging — which we have to turn off because it degrades DNS performance — with always-on, out-of-band dnstap telemetry. See [ARCHITECTURE.md](ARCHITECTURE.md) for the design and [QUICKSTART.md](QUICKSTART.md) for the 10-minute setup walkthrough.
 
-1. Validate that our InfoBlox DNS members actually emit dnstap frames as expected.
-2. Benchmark resolver overhead with dnstap on vs off.
-3. Prove end-to-end ingest into Splunk HEC with structured fields.
-4. Inform the eventual choice of a production-grade collector.
+## What this repo gives you
 
-## Status
-
-| Component | Status |
+| | |
 |---|---|
-| Frame Streams unidirectional reader (UNIX socket / TCP) | scaffolded |
-| dnstap protobuf decoder | **stubbed** — see `src/dnstap2/decoder.py` |
-| Stdout sink | scaffolded |
-| JSON-lines file sink | scaffolded |
-| Splunk HEC sink | scaffolded |
-| CLI | scaffolded |
-| Tests | smoke tests only |
+| **Vector config (generated)** | Native dnstap source → Splunk HEC + JSONL archive + Prometheus exporter |
+| **Prometheus config (generated)** | Scrapes Vector for metrics |
+| **Python WAPI scripts** | Discover schema, configure dnstap on InfoBlox, dry-run by default with snapshot+rollback |
+| **Python install scripts** | Download and install Vector and Prometheus binaries, write systemd units |
+| **Python `dnstap2` library** | Tiny Frame Streams reader for Phase-1 validation and debugging |
+| **`scripts/setup.sh`** | One-shot orchestrator: connectivity check → install → render configs → InfoBlox dry-run |
 
-The protobuf decoder is intentionally stubbed. Wiring it in requires the canonical `dnstap.proto` from <https://github.com/dnstap/dnstap.pb> and the `protobuf` Python package. See **Adding the real decoder** below.
+## Stack
+
+| Component | Role | Notes |
+|---|---|---|
+| InfoBlox NIOS | DNS source | grid master at `192.168.1.224`, WAPI `v2.13.7` |
+| Vector | Receiver + router + metrics exporter | single static binary, runs under systemd |
+| Prometheus | Time-series store for ops dashboards | single static binary, scrapes Vector |
+| Splunk HEC | Forensic audit log (optional) | enable via `[splunk].enabled` in `config.toml` |
+| Python 3.11+ | Operational scripts | stdlib only at runtime, no Docker, no JVM |
 
 ## Layout
 
 ```
 DNSTAP2/
-├── pyproject.toml
-├── README.md
-├── .gitignore
-├── src/
-│   └── dnstap2/
-│       ├── __init__.py
-│       ├── __main__.py        # `python -m dnstap2`
-│       ├── cli.py             # argparse entry point
-│       ├── framestream.py     # Frame Streams (fstrm) unidirectional reader
-│       ├── decoder.py         # dnstap protobuf decoder (stub + extension point)
-│       ├── collector.py       # listens on UNIX / TCP, hands frames to a sink
-│       └── sinks/
-│           ├── __init__.py
-│           ├── base.py
-│           ├── stdout.py
-│           ├── jsonl.py
-│           └── splunk_hec.py
-├── tests/
-│   ├── __init__.py
-│   └── test_framestream.py
-└── docs/
-    └── design.md
+├── ARCHITECTURE.md             # design + decisions + rollback
+├── README.md                   # this file
+├── QUICKSTART.md               # 10-minute walkthrough
+├── config.example.toml         # copy to config.toml and edit
+├── pyproject.toml              # dnstap2 lib + dev tooling
+├── src/dnstap2/                # the Python library (Phase-1 debug tool)
+│   ├── framestream.py          # stdlib Frame Streams reader (tested)
+│   ├── decoder.py              # protobuf decoder stub (Vector does real decoding)
+│   ├── collector.py            # socket accept loop
+│   ├── cli.py                  # `dnstap2` console script
+│   └── sinks/                  # stdout, jsonl, splunk HEC
+├── tests/                      # pytest
+├── scripts/
+│   ├── setup.sh                # one-shot orchestrator
+│   ├── lib/                    # shared helpers (config, WAPI client, platform)
+│   ├── check_infoblox.py       # connectivity + schema probe
+│   ├── configure_infoblox_dnstap.py  # WAPI dnstap config (dry-run by default)
+│   ├── install_vector.py       # download + install Vector binary
+│   ├── install_prometheus.py   # download + install Prometheus binary
+│   ├── render_vector_config.py
+│   ├── render_prometheus_config.py
+│   └── test_dnstap_flow.py     # end-to-end frame-count smoke test
+├── templates/
+│   ├── vector.toml.tmpl
+│   └── prometheus.yml.tmpl
+├── docs/design.md              # design notes for the Python library
+└── vendor/                     # downloaded binaries (gitignored)
 ```
 
-## Install
+## Prerequisites
+
+- Python **3.11+**
+- Linux with **systemd** (recommended) or macOS (foreground mode)
+- Network reachability from this host to the InfoBlox grid master (TCP/443) and *from* the grid master back to this host on the receiver port (default `6000/tcp`)
+- `sudo` for writing systemd units and `/etc/` config files (or override `install_prefix` in `config.toml` to a user-owned dir)
+
+## Quick start
+
+The short version — full walkthrough in [QUICKSTART.md](QUICKSTART.md):
 
 ```bash
-cd ~/Projects/DNSTAP2
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+git clone https://github.com/tshoush/DNSTAP2.git
+cd DNSTAP2
+
+cp config.example.toml config.toml
+$EDITOR config.toml            # set receiver.advertised_host to this machine's IP
+
+export INFOBLOX_PASSWORD=infoblox   # do not commit the password
+
+./scripts/setup.sh                 # dry-run end-to-end
+./scripts/setup.sh --apply         # actually push the InfoBlox dnstap config
 ```
 
-## Run
-
-Listen on a UNIX socket (the typical InfoBlox/BIND target):
+Verify:
 
 ```bash
-dnstap2 --unix /tmp/dnstap.sock --sink stdout
+python scripts/test_dnstap_flow.py --config config.toml
+curl -s http://localhost:9598/metrics | grep dnstap_
+open  http://localhost:9090
 ```
 
-Listen on TCP:
+## Configuration
+
+Everything is driven by `config.toml`. See `config.example.toml` for the annotated schema. The fields you almost certainly want to set:
+
+| | |
+|---|---|
+| `infoblox.host` | grid master IP — pre-filled with `192.168.1.224` |
+| `infoblox.username` | WAPI user — pre-filled with `admin` |
+| `INFOBLOX_PASSWORD` env var | WAPI password — **do not commit** |
+| `receiver.advertised_host` | IP of THIS host as reachable from the grid master |
+| `splunk.enabled` / `SPLUNK_HEC_TOKEN` | flip to `true` and set the token to enable HEC sink |
+
+## Verifying it works
 
 ```bash
-dnstap2 --tcp 0.0.0.0:6000 --sink stdout
+# 1. Vector is up and exposing metrics
+curl -sf http://localhost:9598/metrics > /dev/null && echo "vector OK"
+
+# 2. Prometheus is scraping Vector
+curl -s http://localhost:9090/api/v1/targets | grep '"health":"up"'
+
+# 3. End-to-end frame count
+python scripts/test_dnstap_flow.py --config config.toml --seconds 30
+
+# 4. JSONL archive is filling up
+sudo tail -f /var/log/dnstap/events.jsonl
 ```
 
-Forward to a JSON-lines file:
+## Running on macOS (lab only)
+
+macOS works for ad-hoc lab testing without systemd:
 
 ```bash
-dnstap2 --unix /tmp/dnstap.sock --sink jsonl --path /var/log/dnstap.jsonl
+./scripts/setup.sh --no-systemd --skip-install   # render configs only
+# then in separate terminals:
+vector --config $(grep config_path config.toml | head -1 | cut -d'"' -f2)
+prometheus --config.file $(grep -A1 '\[prometheus\]' config.toml | grep config_path | cut -d'"' -f2)
 ```
 
-Forward to Splunk HEC:
-
-```bash
-export SPLUNK_HEC_TOKEN=...your token...
-dnstap2 --unix /tmp/dnstap.sock \
-        --sink splunk \
-        --splunk-url https://splunk.example.com:8088/services/collector/event \
-        --splunk-index dns_dnstap \
-        --splunk-sourcetype dnstap:json
-```
-
-## Pointing InfoBlox / BIND at it
-
-For a quick BIND lab test, in `named.conf`:
-
-```text
-options {
-  dnstap { client; resolver; auth; };
-  dnstap-output unix "/tmp/dnstap.sock";
-};
-```
-
-For InfoBlox NIOS — verify the exact configuration surface against your build's documentation during the Phase-1 validation step. Treat the BIND form above as a reference for what the data shape should look like, not as a config to paste into NIOS.
-
-## Adding the real decoder
-
-The `decoder.decode_frame()` function currently returns a minimal placeholder dict (`{"raw_bytes": N, "sha256": ..., "_decoded": false}`). To wire in real dnstap decoding:
-
-1. Get `dnstap.proto` from <https://github.com/dnstap/dnstap.pb>.
-2. Compile it:
-   ```bash
-   pip install protobuf grpcio-tools
-   python -m grpc_tools.protoc -Iproto --python_out=src/dnstap2/_pb proto/dnstap.proto
-   ```
-3. Replace the stub in `decoder.py` with a call to `Dnstap.FromString(payload)` and project the fields you want.
-
-The framing layer (`framestream.py`) and sinks are independent of this and don't need to change.
+You can install Vector and Prometheus via Homebrew (`brew install vectordotdev/brew/vector prometheus`) instead of letting `install_vector.py` / `install_prometheus.py` drop binaries into `/usr/local/bin`.
 
 ## Tests
 
 ```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
 pytest
 ```
-
-## Caveats
-
-- This is a lab tool. It does no auth, TLS, or back-pressure beyond what the OS gives you.
-- Frame Streams here implements only the **unidirectional content stream** mode, which is what DNS servers send by default. Bidirectional handshakes are not implemented.
-- The Splunk HEC sink uses synchronous `urllib`. For real load, swap to an async client and add batching.
-- Version claims about InfoBlox NIOS dnstap support belong in the proposal report (`ClaudePreso/report.html`), not here. This repo's job is to be the small thing that proves the bytes flow end to end.
 
 ## License
 

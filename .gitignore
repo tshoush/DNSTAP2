@@ -6,6 +6,7 @@ __pycache__/
 .Python
 *.egg-info/
 *.egg
+src/*.egg-info/
 build/
 dist/
 .eggs/
@@ -49,3 +50,11 @@ local_config.toml
 /run/
 /var/
 /tmp_data/
+
+# Local config with secrets — only the example is committed
+config.toml
+!config.example.toml
+
+# Downloaded binaries
+/vendor/
+/dist_bins/

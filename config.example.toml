@@ -1,0 +1,77 @@
+# DNSTAP2 — local configuration
+#
+# Copy to config.toml and fill in. config.toml is gitignored.
+# Secrets should come from environment variables, not from this file.
+
+[infoblox]
+# Grid master address and WAPI credentials.
+host = "192.168.1.224"
+username = "admin"
+# Password — leave blank here and set the INFOBLOX_PASSWORD env var instead.
+# Only fill this in for a throwaway lab grid.
+password = ""
+wapi_version = "v2.13.7"
+# InfoBlox grid masters usually present a self-signed cert. Set to true and
+# pin the CA in real environments; false is acceptable for the lab.
+verify_tls = false
+# Seconds for WAPI calls.
+timeout = 10
+
+[receiver]
+# Where Vector will listen for dnstap frames from InfoBlox.
+# This is the IP of THIS host, as reachable from the grid master.
+listen_host = "0.0.0.0"
+listen_port = 6000
+# "tcp" or "unix". UNIX socket is lower overhead but requires Vector on the
+# same box as the DNS server, which is not our case (InfoBlox is remote).
+mode = "tcp"
+# Public/routable address that InfoBlox will dial — must be reachable from
+# the grid master. Update this to the IP of THIS host on the InfoBlox-facing
+# network.
+advertised_host = "192.168.1.50"
+advertised_port = 6000
+
+[vector]
+# Vector is the production data plane: native dnstap source, ships events
+# to Splunk and exposes Prometheus metrics.
+version = "0.39.0"
+install_prefix = "/usr/local"
+config_path = "/etc/vector/vector.toml"
+data_dir = "/var/lib/vector"
+# Where Vector exposes Prometheus-format metrics.
+metrics_listen = "0.0.0.0:9598"
+# Where Vector writes a local JSONL archive of dnstap events (lab forensics
+# and offline replay). Set to "" to disable.
+jsonl_path = "/var/log/dnstap/events.jsonl"
+
+[prometheus]
+version = "2.53.0"
+install_prefix = "/usr/local"
+config_path = "/etc/prometheus/prometheus.yml"
+data_dir = "/var/lib/prometheus"
+listen = "0.0.0.0:9090"
+# How often Prometheus scrapes Vector.
+scrape_interval = "15s"
+
+[splunk]
+# Optional. If enabled, Vector forwards events to Splunk HEC in parallel
+# with the local JSONL archive and the Prometheus metrics path.
+enabled = false
+hec_url = "https://splunk.example.com:8088/services/collector/event"
+# Token — leave blank and set SPLUNK_HEC_TOKEN env var instead.
+hec_token = ""
+index = "dns_dnstap"
+sourcetype = "dnstap:json"
+source = "vector-dnstap"
+verify_tls = true
+
+[dnstap]
+# Which message types to enable on the DNS server. The actual field names
+# in the InfoBlox WAPI may vary by NIOS build — the configure script will
+# discover the schema and confirm before applying.
+client_queries = true
+client_responses = true
+resolver_queries = true
+resolver_responses = true
+auth_queries = false
+auth_responses = false

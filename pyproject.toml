@@ -7,7 +7,7 @@ name = "dnstap2"
 version = "0.1.0"
 description = "A small dnstap collector and parser — receives Frame Streams from a DNS server (InfoBlox NIOS, BIND, Unbound) and forwards structured events to a sink (stdout, JSON file, or Splunk HEC)."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "tshoush", email = "tshoush@aol.com" }]
 keywords = ["dns", "dnstap", "infoblox", "splunk", "observability"]
@@ -15,7 +15,6 @@ classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: System Administrators",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Topic :: Internet :: Name Service (DNS)",
@@ -49,11 +48,11 @@ addopts = "-ra -q"
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 strict = true
