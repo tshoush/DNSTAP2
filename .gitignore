@@ -54,6 +54,7 @@ local_config.toml
 # Local config with secrets — only the example is committed
 config.toml
 !config.example.toml
+.python-path
 
 # Downloaded binaries
 /vendor/

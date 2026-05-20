@@ -84,6 +84,21 @@ They are not interchangeable. Vector emits both shapes; Prometheus consumes only
 - Vector and Prometheus both ship as static binaries with no runtime deps; Docker buys us nothing for two long-lived daemons.
 - Systemd gives us cleaner service supervision, logging, and resource accounting than container runtimes for this workload.
 
+### 3.5 Cross-platform compatibility (RHEL 7 / RHEL 8+ / WSL2 / macOS)
+
+The installers adapt at runtime to the host they're running on. There are four real compatibility surfaces:
+
+| Surface | Old (RHEL 7.9) | Modern (RHEL 8+, Ubuntu 22+, WSL2 mirrored) | How we handle it |
+|---|---|---|---|
+| Python | 2.7 system | 3.10+ system | `bootstrap.sh` prompts for a 3.11+ interpreter (auto-detects candidates) and creates `.venv` from it |
+| glibc | 2.17 | 2.28+ | `platform_info.uses_musl_vector` flips to `True` on glibc <2.28; we install the `linux-musl` Vector build instead of `linux-gnu` |
+| systemd | 219 | 235+ | `platform_info.systemd_unit()` omits `StateDirectory=` and `AmbientCapabilities=` when systemd <235/229 — only emits directives the host's systemd actually supports |
+| Service users | not auto-created | not auto-created | `lib/sysuser.ensure_system_user()` runs `useradd --system`; falls back to `root` if no root or no `useradd` (with a warning) |
+
+WSL2 has a separate wrinkle that isn't a code issue — InfoBlox dials the **Windows host** IP, not the WSL VM IP. QUICKSTART.md documents the two solutions (mirrored networking on Win11 22H2+, or `netsh portproxy`). The receiver software runs unchanged inside WSL.
+
+All four behaviors are exercised in `tests/test_platform_info.py` against hand-constructed `HostInfo` fixtures so we get regression coverage without needing the actual platforms in CI.
+
 ### 3.5 Why `dnstap2` (the Python collector) is *not* the production receiver
 
 - Vector is purpose-built, battle-tested, and decodes the protobuf for us.

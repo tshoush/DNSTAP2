@@ -42,8 +42,9 @@ DNSTAP2/
 │   └── sinks/                  # stdout, jsonl, splunk HEC
 ├── tests/                      # pytest
 ├── scripts/
-│   ├── setup.sh                # one-shot orchestrator
-│   ├── lib/                    # shared helpers (config, WAPI client, platform)
+│   ├── bootstrap.sh            # interactive Python detection + venv creation
+│   ├── setup.sh                # one-shot orchestrator (auto-detects WSL/no-systemd)
+│   ├── lib/                    # shared helpers (config, WAPI, platform, sysuser)
 │   ├── check_infoblox.py       # connectivity + schema probe
 │   ├── configure_infoblox_dnstap.py  # WAPI dnstap config (dry-run by default)
 │   ├── install_vector.py       # download + install Vector binary
@@ -58,12 +59,23 @@ DNSTAP2/
 └── vendor/                     # downloaded binaries (gitignored)
 ```
 
+## Supported platforms
+
+| Platform | Vector build | Systemd | Notes |
+|---|---|---|---|
+| **RHEL / CentOS / Rocky / Alma 7.x** | `linux-musl` (auto) | v219 — unit downgraded automatically | Needs Python 3.11+ from IUS or from source (bootstrap prints commands) |
+| **RHEL / CentOS / Rocky / Alma 8.x and 9.x** | `linux-gnu` | v239+ — full hardening | Python 3.11+ from `dnf install python3.11` |
+| **Ubuntu / Debian (native)** | `linux-gnu` | yes | `apt install python3.11 python3.11-venv` (deadsnakes PPA on older releases) |
+| **Ubuntu under WSL2 (Windows 11)** | `linux-gnu` | yes if `[boot] systemd=true` in `/etc/wsl.conf`, else foreground | **Networking note**: InfoBlox dials your *Windows* host, not the WSL VM. Use mirrored networking or `netsh portproxy`. See [QUICKSTART.md](QUICKSTART.md#wsl2). |
+| **macOS** (lab only) | `apple-darwin` | n/a — foreground mode | `brew install python@3.12` |
+
+All platform-specific details (glibc version → musl build, systemd version → unit syntax) are detected at install time. You don't have to think about it.
+
 ## Prerequisites
 
-- Python **3.11+**
-- Linux with **systemd** (recommended) or macOS (foreground mode)
-- Network reachability from this host to the InfoBlox grid master (TCP/443) and *from* the grid master back to this host on the receiver port (default `6000/tcp`)
-- `sudo` for writing systemd units and `/etc/` config files (or override `install_prefix` in `config.toml` to a user-owned dir)
+- **Python 3.11+** (we use stdlib `tomllib`) — `bootstrap.sh` prompts for it interactively with auto-detection.
+- Reachability: this host → InfoBlox grid master on `TCP/443` (WAPI), and grid master → this host on `TCP/6000` (dnstap).
+- `sudo` for writing systemd units and `/etc/` config files. Override `install_prefix` in `config.toml` to a user-owned dir to skip `sudo`.
 
 ## Quick start
 
@@ -73,10 +85,12 @@ The short version — full walkthrough in [QUICKSTART.md](QUICKSTART.md):
 git clone https://github.com/tshoush/DNSTAP2.git
 cd DNSTAP2
 
-cp config.example.toml config.toml
-$EDITOR config.toml            # set receiver.advertised_host to this machine's IP
+./scripts/bootstrap.sh             # interactive — prompts for python3.11+ path, creates .venv, installs
 
-export INFOBLOX_PASSWORD=infoblox   # do not commit the password
+cp config.example.toml config.toml
+$EDITOR config.toml                # set receiver.advertised_host to this machine's IP
+
+export INFOBLOX_PASSWORD=infoblox  # do not commit the password
 
 ./scripts/setup.sh                 # dry-run end-to-end
 ./scripts/setup.sh --apply         # actually push the InfoBlox dnstap config

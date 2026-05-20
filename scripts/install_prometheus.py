@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
-"""Download and install Prometheus as a native binary (no Docker)."""
+"""Download and install Prometheus as a native binary (no Docker).
+
+Prometheus is a static Go binary so there is no glibc concern — the same
+build runs on RHEL 7 and modern distros. We still tune the systemd unit
+to the host's systemd version (RHEL 7 ships systemd 219 which doesn't
+support StateDirectory / AmbientCapabilities).
+"""
 
 from __future__ import annotations
 
 import argparse
+import logging
 import shutil
 import sys
 import tarfile
@@ -14,38 +21,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.lib import config as cfgmod  # noqa: E402
-from scripts.lib.platform_info import detect  # noqa: E402
+from scripts.lib.platform_info import HostInfo, detect, systemd_unit  # noqa: E402
+from scripts.lib.sysuser import ensure_system_user  # noqa: E402
+
+log = logging.getLogger("install_prometheus")
 
 PROM_URL = (
     "https://github.com/prometheus/prometheus/releases/download/"
     "v{version}/prometheus-{version}.{arch_tag}.tar.gz"
 )
-
-SYSTEMD_UNIT = """\
-[Unit]
-Description=Prometheus — scrapes Vector dnstap metrics
-Documentation=https://prometheus.io
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=prometheus
-Group=prometheus
-ExecStart={binary} \\
-  --config.file={config} \\
-  --storage.tsdb.path={data_dir} \\
-  --web.listen-address={listen}
-Restart=on-failure
-RestartSec=5
-NoNewPrivileges=true
-ProtectSystem=full
-ProtectHome=true
-StateDirectory=prometheus
-
-[Install]
-WantedBy=multi-user.target
-"""
 
 
 def _download(url: str, dest: Path) -> None:
@@ -81,26 +65,22 @@ def _extract_binaries(tarball: Path, out_dir: Path) -> tuple[Path, Path]:
 
 def install(
     *,
-    version: str,
-    install_prefix: str,
-    config_path: str,
-    data_dir: str,
-    listen: str,
+    cfg: cfgmod.PrometheusConfig,
+    host: HostInfo,
     write_systemd: bool,
     force: bool,
     vendor_dir: Path,
 ) -> Path:
-    host = detect()
     arch_tag = host.prometheus_arch_tag
-    bin_dir = Path(install_prefix) / "bin"
+    bin_dir = Path(cfg.install_prefix) / "bin"
     target_bin = bin_dir / "prometheus"
 
     if target_bin.exists() and not force:
         print(f"  {target_bin} already exists (use --force to reinstall)")
     else:
-        url = PROM_URL.format(version=version, arch_tag=arch_tag)
+        url = PROM_URL.format(version=cfg.version, arch_tag=arch_tag)
         with tempfile.TemporaryDirectory(prefix="prom-dl-") as td:
-            tarball = vendor_dir / f"prometheus-{version}-{arch_tag}.tar.gz"
+            tarball = vendor_dir / f"prometheus-{cfg.version}-{arch_tag}.tar.gz"
             if not tarball.exists() or force:
                 _download(url, tarball)
             prom_src, promtool_src = _extract_binaries(tarball, Path(td))
@@ -109,26 +89,39 @@ def install(
             shutil.copy2(promtool_src, bin_dir / "promtool")
             target_bin.chmod(0o755)
             (bin_dir / "promtool").chmod(0o755)
-        print(f"  installed {target_bin} and {bin_dir / 'promtool'}")
+        print(f"  installed {target_bin} and {bin_dir / 'promtool'} (build={arch_tag})")
+
+    Path(cfg.data_dir).mkdir(parents=True, exist_ok=True)
+    Path(cfg.config_path).parent.mkdir(parents=True, exist_ok=True)
 
     if write_systemd:
         if not host.has_systemd:
-            print("  ! systemd not detected on this host — skipping unit file")
-        else:
-            unit_path = Path("/etc/systemd/system/prometheus.service")
-            unit_path.write_text(
-                SYSTEMD_UNIT.format(
-                    binary=str(target_bin),
-                    config=config_path,
-                    data_dir=data_dir,
-                    listen=listen,
-                )
-            )
-            print(f"  wrote {unit_path}")
-            print("  next: sudo systemctl daemon-reload && sudo systemctl enable --now prometheus")
+            print("  ! systemd not detected — skipping unit file (run prometheus manually)")
+            return target_bin
+        user = ensure_system_user("prometheus")
+        exec_start = (
+            f"{target_bin} "
+            f"--config.file={cfg.config_path} "
+            f"--storage.tsdb.path={cfg.data_dir} "
+            f"--web.listen-address={cfg.listen}"
+        )
+        unit = systemd_unit(
+            description="Prometheus — scrapes Vector dnstap metrics",
+            exec_start=exec_start,
+            user=user,
+            group=user,
+            state_dir_name="prometheus",
+            host=host,
+        )
+        unit_path = Path("/etc/systemd/system/prometheus.service")
+        unit_path.write_text(unit)
+        print(f"  wrote {unit_path} (systemd v{host.systemd_version}, user={user})")
+        try:
+            shutil.chown(cfg.data_dir, user=user, group=user)
+        except (LookupError, PermissionError, OSError) as e:
+            log.warning("could not chown %s: %s", cfg.data_dir, e)
+        print("  next: sudo systemctl daemon-reload && sudo systemctl enable --now prometheus")
 
-    Path(data_dir).mkdir(parents=True, exist_ok=True)
-    Path(config_path).parent.mkdir(parents=True, exist_ok=True)
     return target_bin
 
 
@@ -137,19 +130,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", default="config.toml")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--no-systemd", action="store_true")
+    parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING,
+        format="%(levelname)-7s %(name)s :: %(message)s",
+    )
 
     cfg = cfgmod.load(args.config)
     repo_root = cfgmod.find_repo_root()
     vendor = repo_root / "vendor"
     vendor.mkdir(exist_ok=True)
 
+    host = detect()
     install(
-        version=cfg.prometheus.version,
-        install_prefix=cfg.prometheus.install_prefix,
-        config_path=cfg.prometheus.config_path,
-        data_dir=cfg.prometheus.data_dir,
-        listen=cfg.prometheus.listen,
+        cfg=cfg.prometheus,
+        host=host,
         write_systemd=not args.no_systemd,
         force=args.force,
         vendor_dir=vendor,

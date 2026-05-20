@@ -2,22 +2,21 @@
 """Download and install Vector as a native binary (no Docker).
 
 What this does:
-  1. Detects OS/arch.
-  2. Downloads the matching Vector release tarball from GitHub into ./vendor/.
-  3. Verifies the SHA256 if a checksum is published alongside.
-  4. Extracts the binary to <install_prefix>/bin/vector (default /usr/local/bin).
-  5. Optionally writes a systemd unit at /etc/systemd/system/vector.service.
-
-What this does NOT do:
-  - Run vector. The setup orchestrator does that after configs are rendered.
-  - Manage upgrades. Re-run this script with --force to overwrite.
+  1. Detects OS/arch + glibc; picks the musl Vector build on old glibc
+     (RHEL 7) and the gnu build elsewhere.
+  2. Downloads the matching Vector release tarball into ./vendor/.
+  3. Verifies the SHA256 against the published .sha256 file when available.
+  4. Extracts the binary to <install_prefix>/bin/vector.
+  5. Optionally creates a `vector` system user.
+  6. Optionally writes a systemd unit compatible with the host's systemd
+     version (StateDirectory / AmbientCapabilities are omitted on RHEL 7).
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
-import os
+import logging
 import shutil
 import sys
 import tarfile
@@ -28,37 +27,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.lib import config as cfgmod  # noqa: E402
-from scripts.lib.platform_info import detect  # noqa: E402
+from scripts.lib.platform_info import HostInfo, detect, systemd_unit  # noqa: E402
+from scripts.lib.sysuser import ensure_system_user  # noqa: E402
+
+log = logging.getLogger("install_vector")
 
 VECTOR_RELEASE_URL = (
     "https://packages.timber.io/vector/{version}/"
     "vector-{version}-{arch_tag}.tar.gz"
 )
 VECTOR_SHA_URL = VECTOR_RELEASE_URL + ".sha256"
-
-SYSTEMD_UNIT = """\
-[Unit]
-Description=Vector — dnstap receiver and metrics exporter
-Documentation=https://vector.dev
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart={binary} --config {config}
-Restart=on-failure
-RestartSec=5
-User=vector
-Group=vector
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-NoNewPrivileges=true
-ProtectSystem=full
-ProtectHome=true
-StateDirectory=vector
-
-[Install]
-WantedBy=multi-user.target
-"""
 
 
 def _download(url: str, dest: Path) -> None:
@@ -107,26 +85,24 @@ def _extract_binary(tarball: Path, out_dir: Path) -> Path:
 
 def install(
     *,
-    version: str,
-    install_prefix: str,
-    config_path: str,
+    cfg: cfgmod.VectorConfig,
+    host: HostInfo,
     write_systemd: bool,
     force: bool,
     vendor_dir: Path,
 ) -> Path:
-    host = detect()
     arch_tag = host.vector_arch_tag
-    bin_dir = Path(install_prefix) / "bin"
+    bin_dir = Path(cfg.install_prefix) / "bin"
     target_bin = bin_dir / "vector"
 
     if target_bin.exists() and not force:
         print(f"  {target_bin} already exists (use --force to reinstall)")
     else:
-        url = VECTOR_RELEASE_URL.format(version=version, arch_tag=arch_tag)
-        sha_url = VECTOR_SHA_URL.format(version=version, arch_tag=arch_tag)
+        url = VECTOR_RELEASE_URL.format(version=cfg.version, arch_tag=arch_tag)
+        sha_url = VECTOR_SHA_URL.format(version=cfg.version, arch_tag=arch_tag)
 
         with tempfile.TemporaryDirectory(prefix="vector-dl-") as td:
-            tarball = vendor_dir / f"vector-{version}-{arch_tag}.tar.gz"
+            tarball = vendor_dir / f"vector-{cfg.version}-{arch_tag}.tar.gz"
             if not tarball.exists() or force:
                 _download(url, tarball)
             _maybe_verify(tarball, sha_url)
@@ -134,18 +110,39 @@ def install(
             bin_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(extracted, target_bin)
             target_bin.chmod(0o755)
-        print(f"  installed {target_bin}")
+        print(f"  installed {target_bin} (build={arch_tag})")
+
+    # Pre-create directories the renderer will write into.
+    Path(cfg.data_dir).mkdir(parents=True, exist_ok=True)
+    Path(cfg.config_path).parent.mkdir(parents=True, exist_ok=True)
+    if cfg.jsonl_path:
+        Path(cfg.jsonl_path).parent.mkdir(parents=True, exist_ok=True)
 
     if write_systemd:
         if not host.has_systemd:
-            print("  ! systemd not detected on this host — skipping unit file")
-        else:
-            unit_path = Path("/etc/systemd/system/vector.service")
-            unit_path.write_text(
-                SYSTEMD_UNIT.format(binary=str(target_bin), config=config_path)
-            )
-            print(f"  wrote {unit_path}")
-            print("  next: sudo systemctl daemon-reload && sudo systemctl enable --now vector")
+            print("  ! systemd not detected — skipping unit file (run vector manually)")
+            return target_bin
+        user = ensure_system_user("vector")
+        unit = systemd_unit(
+            description="Vector — dnstap receiver and metrics exporter",
+            exec_start=f"{target_bin} --config {cfg.config_path}",
+            user=user,
+            group=user,
+            state_dir_name="vector",
+            host=host,
+        )
+        unit_path = Path("/etc/systemd/system/vector.service")
+        unit_path.write_text(unit)
+        print(f"  wrote {unit_path} (systemd v{host.systemd_version}, user={user})")
+        # Make data/log dirs writable by the chosen user.
+        try:
+            shutil.chown(cfg.data_dir, user=user, group=user)
+            if cfg.jsonl_path:
+                jsonl_dir = str(Path(cfg.jsonl_path).parent)
+                shutil.chown(jsonl_dir, user=user, group=user)
+        except (LookupError, PermissionError, OSError) as e:
+            log.warning("could not chown %s: %s", cfg.data_dir, e)
+        print("  next: sudo systemctl daemon-reload && sudo systemctl enable --now vector")
 
     return target_bin
 
@@ -157,29 +154,31 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--no-systemd",
         action="store_true",
-        help="don't write a systemd unit (default: write one on Linux)",
+        help="don't write a systemd unit (default: write one on systemd hosts)",
     )
+    parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING,
+        format="%(levelname)-7s %(name)s :: %(message)s",
+    )
 
     cfg = cfgmod.load(args.config)
     repo_root = cfgmod.find_repo_root()
     vendor = repo_root / "vendor"
     vendor.mkdir(exist_ok=True)
 
+    host = detect()
+    print(f"  host: {host.distro} {host.distro_major} ({host.os}/{host.arch}), "
+          f"wsl={host.is_wsl}, systemd={host.systemd_version or 'n/a'}, "
+          f"glibc={host.glibc_version or 'n/a'}")
     install(
-        version=cfg.vector.version,
-        install_prefix=cfg.vector.install_prefix,
-        config_path=cfg.vector.config_path,
+        cfg=cfg.vector,
+        host=host,
         write_systemd=not args.no_systemd,
         force=args.force,
         vendor_dir=vendor,
     )
-
-    # Pre-create directories the renderer will write into.
-    Path(cfg.vector.data_dir).parent.mkdir(parents=True, exist_ok=True)
-    Path(cfg.vector.config_path).parent.mkdir(parents=True, exist_ok=True)
-    if cfg.vector.jsonl_path:
-        Path(cfg.vector.jsonl_path).parent.mkdir(parents=True, exist_ok=True)
     return 0
 
 
@@ -188,7 +187,11 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except PermissionError as e:
         print(f"permission denied: {e}", file=sys.stderr)
-        print("hint: re-run with sudo, or set vector.install_prefix to a user-owned dir.", file=sys.stderr)
+        print(
+            "hint: re-run with sudo, or set vector.install_prefix in config.toml "
+            "to a user-owned directory.",
+            file=sys.stderr,
+        )
         sys.exit(1)
     except OSError as e:
         print(f"i/o error: {e}", file=sys.stderr)

@@ -2,171 +2,283 @@
 
 Get from zero to dnstap-events-in-Prometheus in about ten minutes.
 
-> Assumes: Linux (Ubuntu / RHEL / Debian) with systemd, `python3.11+`, `sudo` available, network reachability to the InfoBlox grid master at **192.168.1.224**, and an IP on this host reachable *back from* the grid master on **TCP/6000**. macOS notes are at the bottom.
+The scripts detect your platform and adapt. The path you take depends on **where the receiver runs**:
 
----
+- **[RHEL 7.9 / CentOS 7](#rhel-79--centos-7)** — needs a manual Python install; uses Vector's musl build and a downgraded systemd unit. All handled by the scripts.
+- **[RHEL 8 / 9, Rocky, Alma, Fedora](#rhel-8--9-rocky-alma-fedora)** — Python 3.11 in default repos; modern systemd.
+- **[Ubuntu / Debian](#ubuntu--debian)** — Python 3.11 via apt (deadsnakes PPA on older releases).
+- **[WSL2 on Windows 11](#wsl2)** — extra step: forward `:6000` from the Windows host to the WSL VM.
+- **[macOS (lab only)](#macos)** — no systemd; run in foreground.
 
-## 0. What you'll have at the end
-
+What you get at the end:
 - Vector receiving dnstap frames from InfoBlox on `:6000`.
 - Prometheus scraping Vector at `:9598/metrics`.
 - A JSONL archive of every dnstap event in `/var/log/dnstap/events.jsonl`.
 - (Optional) Events forwarded to Splunk HEC.
-- A reusable, idempotent setup driven by one `config.toml`.
 
 ---
 
-## 1. Clone and bootstrap config
+## 0. Common steps (all platforms)
 
 ```bash
 git clone https://github.com/tshoush/DNSTAP2.git
 cd DNSTAP2
+./scripts/bootstrap.sh             # interactive — prompts for Python 3.11+ path
 cp config.example.toml config.toml
 ```
 
-Edit `config.toml` and set the **two values you must change**:
+`bootstrap.sh` will:
+- Detect your OS (and WSL2 / systemd version / glibc).
+- Find candidate Python binaries on PATH and at well-known install locations.
+- Show you the best candidate and let you accept it (Enter) or type a different path.
+- Validate that it is Python 3.11+ and that the `venv` module is available.
+- Create `.venv/` and install the project.
+- Run the test suite to prove the bootstrap worked.
+
+Then edit `config.toml` and set:
 
 ```toml
 [receiver]
-advertised_host = "192.168.1.50"      # ← THIS host's IP, as the grid master will see it
+advertised_host = "192.168.1.50"      # ← THIS host's IP as the grid master will see it
 
 [infoblox]
-host = "192.168.1.224"                # ← already set; confirm it
-username = "admin"                     # ← already set; confirm it
+host = "192.168.1.224"                # pre-set
+username = "admin"                     # pre-set
 ```
 
-Set the password via environment variable, not in the file:
+Set the password via environment (do not commit it):
 
 ```bash
 export INFOBLOX_PASSWORD=infoblox
 ```
 
-(For Splunk forwarding, also set `[splunk].enabled = true`, `[splunk].hec_url = "..."`, and `export SPLUNK_HEC_TOKEN=...`.)
+For Splunk forwarding: set `[splunk].enabled = true` and `export SPLUNK_HEC_TOKEN=...`.
 
 ---
 
-## 2. Verify connectivity to InfoBlox
+## RHEL 7.9 / CentOS 7
+
+> Why this section exists: RHEL 7.9 ships Python 2.7, glibc 2.17, and systemd 219. The scripts handle the second and third for you (musl Vector + downgraded systemd unit). You handle the first.
+
+### 1. Install Python 3.11 (one-time)
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -q -e ".[dev]"
-python scripts/check_infoblox.py --config config.toml
+# Easiest: IUS community repo
+sudo yum install -y https://repo.ius.io/ius-release-el7.rpm
+sudo yum install -y python311 python311-pip
+
+# Or from source (no extra repos):
+sudo yum groupinstall -y "Development Tools"
+sudo yum install -y openssl-devel bzip2-devel libffi-devel zlib-devel
+curl -O https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz
+tar xf Python-3.11.9.tgz && cd Python-3.11.9
+./configure --enable-optimizations --prefix=/usr/local
+make -j"$(nproc)" && sudo make altinstall
+# → /usr/local/bin/python3.11
 ```
 
-Expected output (abbreviated):
+### 2. Run the common steps from section 0 above
 
-```
-InfoBlox grid master : 192.168.1.224
-WAPI version         : v2.13.7
-User                 : admin
-TLS verify           : False
----
-grid               : infoblox.example.local (ref=grid/...)
-members            : 1
-  - infoblox.example.local (PHYSICAL)
-member:dns objects : 1
-dnstap-related schema fields: 8
-  - dnstap_setting
-  - enable_dnstap_queries
-  - enable_dnstap_responses
-  - dnstap_send_client_response_messages
-  ...
----
-OK: InfoBlox is reachable and dnstap fields are discoverable.
-```
+When `bootstrap.sh` prompts for the Python path, accept the default (`/usr/bin/python3.11` if you used IUS, `/usr/local/bin/python3.11` if you built from source).
 
-If `dnstap-related schema fields: 0`, your NIOS build does not expose dnstap via WAPI on this version. Open the NIOS Grid Manager UI to enable it manually, or upgrade.
-
----
-
-## 3. Install Vector and Prometheus
+### 3. Install and configure
 
 ```bash
-sudo -E ./scripts/setup.sh --skip-install   # dry-run with no installs first
+./scripts/setup.sh                # full dry-run
+./scripts/setup.sh --apply        # apply WAPI changes
 ```
 
-When that looks good, install:
+Expected platform output:
 
-```bash
-sudo -E ./scripts/setup.sh
+```
+host: rhel 7 (linux/x86_64), wsl=False, systemd=219, glibc=(2, 17)
+installed /usr/local/bin/vector (build=x86_64-unknown-linux-musl)
+wrote /etc/systemd/system/vector.service (systemd v219, user=vector)
 ```
 
-(`-E` preserves `INFOBLOX_PASSWORD`.) This will:
+The script automatically:
+- Picks the **musl** Vector build (`x86_64-unknown-linux-musl`) — the gnu build needs glibc 2.28+ which RHEL 7 doesn't have.
+- Generates a **systemd 219-compatible unit** (omits `StateDirectory=` and `AmbientCapabilities=` which require newer systemd).
+- Creates the `vector` and `prometheus` system users via `useradd --system`.
 
-1. Re-run the connectivity check.
-2. Download Vector and Prometheus binaries into `./vendor/`.
-3. Install them to `/usr/local/bin/`.
-4. Write systemd units at `/etc/systemd/system/{vector,prometheus}.service`.
-5. Render `/etc/vector/vector.toml` and `/etc/prometheus/prometheus.yml`.
-6. **Dry-run** the InfoBlox WAPI patch and print the proposed change.
-
-Read the printed patch carefully. Then enable services:
+### 4. Start services and verify
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now vector
-sudo systemctl enable --now prometheus
-
+sudo systemctl enable --now vector prometheus
 systemctl status vector --no-pager
-systemctl status prometheus --no-pager
+journalctl -u vector -n 50 --no-pager
 ```
 
 ---
 
-## 4. Apply the InfoBlox dnstap configuration
+## RHEL 8 / 9, Rocky, Alma, Fedora
+
+### 1. Install Python 3.11
 
 ```bash
-sudo -E ./scripts/setup.sh --apply
+sudo dnf install -y python3.11 python3.11-pip
 ```
 
-This re-runs the whole flow but now passes `--apply` to `configure_infoblox_dnstap.py`, which:
+### 2. Run the common steps from section 0
 
-1. Snapshots the current `member:dns` object(s) to `snapshots/member-dns-pre-<timestamp>.json`.
-2. PUTs the patch built from `[dnstap]` and `[receiver]` in `config.toml`.
+### 3. Install and configure
 
-If something looks wrong afterwards, roll back by `PUT`-ting the snapshot file back to the same `_ref`.
+```bash
+./scripts/setup.sh                # dry-run
+./scripts/setup.sh --apply
+sudo systemctl daemon-reload
+sudo systemctl enable --now vector prometheus
+```
+
+You get the full-fat systemd unit with `StateDirectory=`, `AmbientCapabilities=CAP_NET_BIND_SERVICE`, and `ProtectSystem=full`.
 
 ---
 
-## 5. Verify end-to-end
+## Ubuntu / Debian
+
+### 1. Install Python 3.11
+
+```bash
+# Ubuntu 22.04+ has it directly:
+sudo apt-get update
+sudo apt-get install -y python3.11 python3.11-venv python3.11-dev
+
+# Older releases — use deadsnakes:
+sudo add-apt-repository ppa:deadsnakes/ppa -y
+sudo apt-get update
+sudo apt-get install -y python3.11 python3.11-venv python3.11-dev
+```
+
+### 2. Run the common steps from section 0
+
+### 3. Install and configure
+
+```bash
+./scripts/setup.sh --apply
+sudo systemctl enable --now vector prometheus
+```
+
+---
+
+## WSL2
+
+The DNSTAP2 receiver runs **inside the WSL2 Linux VM**, but InfoBlox dials in from the LAN — and on the LAN, your **Windows host** is reachable, not the WSL VM. You must bridge the two.
+
+### Option A — Mirrored networking (Windows 11 22H2+, easiest)
+
+Create `%UserProfile%\.wslconfig` with:
+
+```ini
+[wsl2]
+networkingMode=mirrored
+```
+
+Then from PowerShell as admin: `wsl --shutdown`. Restart your WSL session. Your Windows host IP and WSL IP are now the same. Set `receiver.advertised_host` in `config.toml` to the Windows host's LAN IP.
+
+### Option B — `netsh portproxy` (any Windows 10/11)
+
+From **Administrator** PowerShell on the Windows host:
+
+```powershell
+$wslIp = (wsl hostname -I).Trim().Split(' ')[0]
+netsh interface portproxy add v4tov4 `
+    listenport=6000 listenaddress=0.0.0.0 `
+    connectport=6000 connectaddress=$wslIp
+New-NetFirewallRule -DisplayName "dnstap 6000" -Direction Inbound `
+    -Protocol TCP -LocalPort 6000 -Action Allow
+```
+
+The WSL IP changes on every reboot, so re-run that on boot or put it in a startup task. Set `receiver.advertised_host` in `config.toml` to the Windows host's LAN IP.
+
+### Inside WSL2: install Python and run
+
+```bash
+# Inside the WSL Ubuntu shell
+sudo apt-get update
+sudo apt-get install -y python3.11 python3.11-venv python3.11-dev
+
+# Enable systemd inside WSL (optional but nicer; otherwise scripts run in foreground mode)
+sudo tee /etc/wsl.conf >/dev/null <<'EOF'
+[boot]
+systemd=true
+EOF
+# Then from Windows PowerShell:  wsl --shutdown   (restart your WSL session)
+
+# Now the normal flow:
+./scripts/bootstrap.sh
+cp config.example.toml config.toml
+$EDITOR config.toml
+export INFOBLOX_PASSWORD=infoblox
+./scripts/setup.sh --apply
+```
+
+If you haven't enabled systemd inside WSL, `setup.sh` auto-detects that and switches to **foreground mode** — it prints the commands to run Vector and Prometheus directly. Run them in two `tmux` panes or two terminal tabs.
+
+---
+
+## macOS
+
+> Lab only. macOS has no systemd; services run in the foreground.
+
+```bash
+brew install python@3.12 vectordotdev/brew/vector prometheus
+./scripts/bootstrap.sh           # accept the homebrew python3.12
+# Override install paths to user-owned dirs so we don't need sudo:
+$EDITOR config.toml
+# set:
+#   [vector]
+#   install_prefix = "/usr/local"            # or "/opt/homebrew" on Apple Silicon
+#   config_path    = "/usr/local/etc/vector/vector.toml"
+#   data_dir       = "/usr/local/var/vector"
+#   jsonl_path     = "/usr/local/var/log/dnstap/events.jsonl"
+#   [prometheus]
+#   install_prefix = "/usr/local"
+#   config_path    = "/usr/local/etc/prometheus/prometheus.yml"
+#   data_dir       = "/usr/local/var/prometheus"
+
+export INFOBLOX_PASSWORD=infoblox
+./scripts/setup.sh --skip-install --no-systemd
+
+# In separate terminals:
+vector --config /usr/local/etc/vector/vector.toml
+prometheus --config.file=/usr/local/etc/prometheus/prometheus.yml \
+           --storage.tsdb.path=/usr/local/var/prometheus \
+           --web.listen-address=0.0.0.0:9090
+```
+
+---
+
+## Verify (all platforms)
 
 ```bash
 # (a) Vector is happy
-sudo journalctl -u vector -n 50 --no-pager
 curl -sf http://localhost:9598/metrics | head
 
 # (b) Prometheus sees Vector as 'up'
-curl -s http://localhost:9090/api/v1/targets \
-  | python -c 'import json,sys; d=json.load(sys.stdin); [print(t["labels"]["job"], t["health"]) for t in d["data"]["activeTargets"]]'
+curl -s http://localhost:9090/api/v1/targets | grep '"health":"up"'
 
 # (c) Frames are actually arriving
 sudo tail -f /var/log/dnstap/events.jsonl
-# you should see JSON lines with .qname, .qtype, .rcode, .client etc.
-```
 
-If `events.jsonl` is empty after a few minutes:
-
-```bash
-# Stop Vector so we can bind :6000 ourselves and verify InfoBlox is dialing us.
+# (d) End-to-end synthetic test (stop Vector first so we can bind :6000)
 sudo systemctl stop vector
-python scripts/test_dnstap_flow.py --config config.toml --seconds 30
+./.venv/bin/python scripts/test_dnstap_flow.py --config config.toml --seconds 30
 sudo systemctl start vector
 ```
 
-This script binds the receiver port, fires a handful of synthetic queries at the grid master, and counts frames. If it sees > 0 frames, InfoBlox is emitting and the network path is fine — the issue is in Vector. If it sees 0 frames, the issue is on the InfoBlox side or in the network.
-
 ---
 
-## 6. Sample Prometheus queries
+## Sample Prometheus queries
 
 ```promql
-# total queries per second, last 5 minutes, broken out by qtype
+# qps by qtype
 sum by (qtype) (rate(dnstap_queries_total[5m]))
 
 # NXDOMAIN rate
 sum(rate(dnstap_responses_total{rcode="NXDOMAIN"}[5m]))
 
-# top 10 talkers (requires `client` to be label-able; see notes in vector.toml)
+# top 10 talkers
 topk(10, sum by (client) (rate(dnstap_queries_total[5m])))
 ```
 
@@ -174,14 +286,13 @@ Open `http://localhost:9090/graph` to plot.
 
 ---
 
-## 7. Rolling back
+## Rolling back
 
 ```bash
-# Stop services
-sudo systemctl disable --now vector prometheus
+sudo systemctl disable --now vector prometheus 2>/dev/null || true
 
-# Roll back InfoBlox dnstap config (restore the pre-change snapshot)
-python - <<'PY'
+# Restore the pre-change InfoBlox snapshot:
+./.venv/bin/python - <<'PY' snapshots/member-dns-pre-<timestamp>.json
 import json, sys
 from scripts.lib import config as c
 from scripts.lib.infoblox import InfobloxClient
@@ -192,39 +303,9 @@ client = InfobloxClient(
 )
 snap = json.load(open(sys.argv[1]))
 for ref, body in snap.items():
-    # strip read-only fields before PUTting back; tune as needed for your NIOS build.
     body.pop("_ref", None)
     client.put(ref, body)
-PY snapshots/member-dns-pre-<timestamp>.json
-```
-
----
-
-## macOS notes (lab only, no systemd)
-
-```bash
-brew install vectordotdev/brew/vector prometheus
-./scripts/setup.sh --skip-install --no-systemd
-# then in separate terminals:
-sudo vector --config /etc/vector/vector.toml
-prometheus --config.file /etc/prometheus/prometheus.yml \
-           --storage.tsdb.path /usr/local/var/prometheus \
-           --web.listen-address 0.0.0.0:9090
-```
-
-You can also override the install paths in `config.toml` to user-owned directories so you don't need `sudo`:
-
-```toml
-[vector]
-install_prefix = "/Users/me/.local"
-config_path    = "/Users/me/.local/etc/vector/vector.toml"
-data_dir       = "/Users/me/.local/share/vector"
-jsonl_path     = "/Users/me/.local/share/vector/events.jsonl"
-
-[prometheus]
-install_prefix = "/Users/me/.local"
-config_path    = "/Users/me/.local/etc/prometheus/prometheus.yml"
-data_dir       = "/Users/me/.local/share/prometheus"
+PY
 ```
 
 ---
@@ -233,9 +314,13 @@ data_dir       = "/Users/me/.local/share/prometheus"
 
 | Symptom | Likely cause | Action |
 |---|---|---|
+| `bootstrap.sh: no Python 3.11+ found` | Python not installed or too old | Follow the platform's install hint printed by bootstrap |
+| `bootstrap.sh: venv module not available` | `python3-venv` package missing | `sudo apt-get install python3.11-venv` (Debian/Ubuntu) |
+| `vector: error while loading shared libraries: libc.so.6: version 'GLIBC_2.28' not found` | gnu build on RHEL 7 | Should not happen — `install_vector.py` auto-picks musl. Re-run with `--force`. |
+| `Failed to parse unit file: Unknown lvalue 'StateDirectory'` | systemd too old | Should not happen — unit is downgraded for systemd < 235. Re-run `install_vector.py`. |
+| WSL2: InfoBlox cannot connect to receiver | WSL VM not reachable from LAN | Configure mirrored networking or `netsh portproxy` (Section [WSL2](#wsl2)) |
 | `check_infoblox.py` HTTP 401 | wrong creds | `export INFOBLOX_PASSWORD=...`; re-check WAPI user |
-| `check_infoblox.py` 0 dnstap fields | NIOS build doesn't expose dnstap via WAPI | enable in Grid Manager UI or upgrade |
-| Vector starts but `events.jsonl` stays empty | InfoBlox not pointed at this host, or firewall | check `receiver.advertised_host`, allow inbound TCP/6000 from grid master |
+| `check_infoblox.py` 0 dnstap fields | NIOS build doesn't expose dnstap via WAPI | Enable in Grid Manager UI, or upgrade NIOS |
+| Vector starts but `events.jsonl` stays empty | InfoBlox not pointed at this host, or firewall | Check `receiver.advertised_host`; allow inbound TCP/6000 from grid master |
 | Prometheus target shows `down` | metrics port not listening | `curl localhost:9598/metrics`; check `journalctl -u vector` |
-| Frames arrive but no `qname` field | `remap` transform expectations differ for your build | adjust the `[transforms.dnstap_enriched]` block in `templates/vector.toml.tmpl` and re-render |
-| Permission denied writing `/etc/...` | running without sudo | re-run with `sudo -E`, or relocate paths in `config.toml` |
+| Permission denied writing `/etc/...` | running without sudo | Re-run with `sudo -E`, or relocate paths in `config.toml` |
