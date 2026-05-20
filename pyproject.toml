@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dnstap2"
+version = "0.1.0"
+description = "A small dnstap collector and parser — receives Frame Streams from a DNS server (InfoBlox NIOS, BIND, Unbound) and forwards structured events to a sink (stdout, JSON file, or Splunk HEC)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "tshoush", email = "tshoush@aol.com" }]
+keywords = ["dns", "dnstap", "infoblox", "splunk", "observability"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: System Administrators",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Internet :: Name Service (DNS)",
+  "Topic :: System :: Logging",
+]
+dependencies = [
+  # Keep runtime deps minimal — stdlib-only for the framing layer.
+  # Add protobuf bindings here when wiring in the real dnstap.proto decoder:
+  #   "protobuf>=4.25",
+  # For the Splunk HEC sink we use urllib from stdlib; swap to httpx if you want async.
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-cov>=5",
+  "ruff>=0.5",
+  "mypy>=1.10",
+]
+splunk = []  # placeholder if we later want httpx/aiohttp
+
+[project.scripts]
+dnstap2 = "dnstap2.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
