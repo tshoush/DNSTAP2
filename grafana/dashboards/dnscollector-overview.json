@@ -1,0 +1,75 @@
+{
+  "uid": "dnscollector-overview",
+  "title": "DNS-collector Overview (+ A/B vs Vector)",
+  "tags": ["dnstap", "dns", "dnscollector"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": {"from": "now-15m", "to": "now"},
+  "templating": {"list": []},
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "QPS (queries/s)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "qps", "decimals": 1, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"},
+      "targets": [{"refId": "A", "expr": "sum(rate(dnscollector_queries_total[1m]))"}]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Built-in throughput_ops",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "ops", "decimals": 0}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"},
+      "targets": [{"refId": "A", "expr": "sum(dnscollector_throughput_ops)"}]
+    },
+    {
+      "id": 3, "type": "stat", "title": "NXDOMAIN/s",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "qps", "decimals": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 5}, {"color": "red", "value": 20}]}}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+      "targets": [{"refId": "A", "expr": "sum(rate(dnscollector_rcodes_total{return_code=\"NXDOMAIN\"}[1m]))"}]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Replies/s",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "qps", "decimals": 1}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"},
+      "targets": [{"refId": "A", "expr": "sum(rate(dnscollector_replies_total[1m]))"}]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "QPS by query type",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "fieldConfig": {"defaults": {"unit": "qps", "custom": {"drawStyle": "line", "fillOpacity": 20, "stacking": {"mode": "normal"}}}, "overrides": []},
+      "targets": [{"refId": "A", "expr": "sum by (query_type) (rate(dnscollector_qtypes_total[1m]))", "legendFormat": "{{query_type}}"}]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Responses by rcode",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "fieldConfig": {"defaults": {"unit": "qps", "custom": {"drawStyle": "line", "fillOpacity": 20, "stacking": {"mode": "normal"}}}, "overrides": []},
+      "targets": [{"refId": "A", "expr": "sum by (return_code) (rate(dnscollector_rcodes_total[1m]))", "legendFormat": "{{return_code}}"}]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "A/B QPS — Vector vs DNS-collector (whichever the NIOS member feeds)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 16, "x": 0, "y": 14},
+      "fieldConfig": {"defaults": {"unit": "qps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2}}, "overrides": []},
+      "targets": [
+        {"refId": "A", "expr": "sum(rate(dnscollector_queries_total[1m]))", "legendFormat": "DNS-collector (:6001)"},
+        {"refId": "B", "expr": "sum(rate(dnstap_responses_total[1m]))", "legendFormat": "Vector (:6000)"}
+      ]
+    },
+    {
+      "id": 8, "type": "table", "title": "Top domains",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 14},
+      "options": {"showHeader": true},
+      "targets": [{"refId": "A", "expr": "topk(10, dnscollector_top_domains)", "format": "table", "instant": true, "legendFormat": "{{domain}}"}]
+    }
+  ]
+}
