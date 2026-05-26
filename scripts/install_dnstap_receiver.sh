@@ -24,6 +24,8 @@ VECTOR_VERSION="${VECTOR_VERSION:-0.39.0}"
 LISTEN_PORT="${LISTEN_PORT:-6000}"
 METRICS_PORT="${METRICS_PORT:-9598}"
 JSONL_PATH="${JSONL_PATH:-/var/log/dnstap/events.jsonl}"
+LOKI_URL="${LOKI_URL:-http://localhost:3100}"      # Grafana Loki (set "" to omit)
+SYSLOG_ADDR="${SYSLOG_ADDR:-127.0.0.1:514}"        # syslog/SIEM UDP target (set "" to omit)
 CONFIG=/etc/vector/vector.toml
 BIN=/usr/local/bin/vector
 
@@ -63,6 +65,35 @@ install -d -o vector -g vector /var/lib/vector "$(dirname "$JSONL_PATH")" /etc/v
 # Ensure the vector user owns existing state/log files (e.g. a previously
 # root-owned events.jsonl) or the file sink can't append.
 chown -R vector:vector /var/lib/vector "$(dirname "$JSONL_PATH")" 2>/dev/null || true
+
+# Optional fan-out sinks (built only when the corresponding env var is set).
+LOKI_SINK=""
+[ -n "$LOKI_URL" ] && LOKI_SINK="$(cat <<LOKI
+
+# Sink: Grafana Loki — decoded events searchable in Grafana alongside metrics.
+[sinks.loki]
+type = "loki"
+inputs = ["dnstap_enriched"]
+endpoint = "${LOKI_URL}"
+healthcheck.enabled = false
+encoding.codec = "json"
+labels.job = "dnstap"
+labels.source = "infoblox"
+labels.message_type = "{{ messageType }}"
+LOKI
+)"
+SYSLOG_SINK=""
+[ -n "$SYSLOG_ADDR" ] && SYSLOG_SINK="$(cat <<SYS
+
+# Sink: syslog/SIEM forward (UDP JSON). Repoint SYSLOG_ADDR at your collector.
+[sinks.syslog_out]
+type = "socket"
+inputs = ["dnstap_enriched"]
+mode = "udp"
+address = "${SYSLOG_ADDR}"
+encoding.codec = "json"
+SYS
+)"
 
 echo "==> Writing $CONFIG"
 cat > "$CONFIG" <<EOF
@@ -131,6 +162,8 @@ type = "file"
 inputs = ["dnstap_enriched"]
 path = "${JSONL_PATH}"
 encoding.codec = "json"
+${LOKI_SINK}
+${SYSLOG_SINK}
 EOF
 chown vector:vector "$CONFIG"
 

@@ -94,3 +94,27 @@ $jsonl_sink_block
 # Sink: Splunk HEC. Only emitted if [splunk].enabled = true in config.toml.
 # ─────────────────────────────────────────────────────────────────────────────
 $splunk_sink_block
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sink: Grafana Loki — decoded events searchable in Grafana alongside metrics.
+# (localhost default for a co-located observability stack; see install_loki.sh)
+# ─────────────────────────────────────────────────────────────────────────────
+[sinks.loki]
+type = "loki"
+inputs = ["dnstap_enriched"]
+endpoint = "http://localhost:3100"
+healthcheck.enabled = false
+encoding.codec = "json"
+labels.job = "dnstap"
+labels.source = "infoblox"
+labels.message_type = "{{ messageType }}"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sink: syslog/SIEM forward (UDP JSON). Repoint address at your collector.
+# ─────────────────────────────────────────────────────────────────────────────
+[sinks.syslog_out]
+type = "socket"
+inputs = ["dnstap_enriched"]
+mode = "udp"
+address = "127.0.0.1:514"
+encoding.codec = "json"
