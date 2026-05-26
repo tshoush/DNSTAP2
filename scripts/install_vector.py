@@ -33,7 +33,7 @@ from scripts.lib.sysuser import ensure_system_user  # noqa: E402
 log = logging.getLogger("install_vector")
 
 VECTOR_RELEASE_URL = (
-    "https://packages.timber.io/vector/{version}/"
+    "https://github.com/vectordotdev/vector/releases/download/v{version}/"
     "vector-{version}-{arch_tag}.tar.gz"
 )
 VECTOR_SHA_URL = VECTOR_RELEASE_URL + ".sha256"

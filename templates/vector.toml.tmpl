@@ -16,6 +16,14 @@ address = "$listen_host:$listen_port"
 max_frame_length = 102400
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Source: Vector's own operational metrics. Feeding these into the Prometheus
+# exporter guarantees /metrics always returns content (even before any dnstap
+# events arrive) and surfaces decode/throughput/error counters for the pipeline.
+# ─────────────────────────────────────────────────────────────────────────────
+[sources.internal_metrics]
+type = "internal_metrics"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Transform: enrich every event with static labels and normalize fields.
 # ─────────────────────────────────────────────────────────────────────────────
 [transforms.dnstap_enriched]
@@ -27,11 +35,18 @@ source = '''
 .dns_vendor  = "infoblox"
 .collector   = "vector"
 
-# Promote some commonly-queried fields to predictable names.
-.qname  = .message.query.question.name        ?? null
-.qtype  = .message.query.question.type        ?? null
-.rcode  = .message.response.rcode             ?? null
-.client = .message.query_address              ?? null
+# Promote commonly-queried fields to predictable top-level names.
+# NIOS dnstap as decoded by Vector's dnstap source puts the DNS question under
+# .requestData (ClientQuery) or .responseData (ClientResponse) — NOT .message.*.
+# Path/array access is INFALLIBLE in VRL (missing -> null), so coalesce with
+# if/null. Do NOT use `?? null` on these: VRL rejects error-coalescing on an
+# infallible expression (error E651) and Vector will refuse to start.
+.qname = .responseData.question[0].domainName
+if .qname == null { .qname = .requestData.question[0].domainName }
+.qtype = .responseData.question[0].questionType
+if .qtype == null { .qtype = .requestData.question[0].questionType }
+.rcode  = .responseData.rcodeName       # null on ClientQuery events
+.client = .sourceAddress                # real client IP
 '''
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -43,16 +58,19 @@ inputs = ["dnstap_enriched"]
 
 [[transforms.dnstap_metrics.metrics]]
 type = "counter"
-field = "qname"           # we count one per event that has a qname
-name = "dnstap_queries_total"
+field = "qname"           # one per event carrying a DNS question
+# namespace + name compose the exported series, so use a bare name here to
+# avoid a doubled prefix (namespace "dnstap" -> dnstap_queries_total).
+name = "queries_total"
 namespace = "dnstap"
 tags.qtype = "{{ qtype }}"
-tags.rcode = "{{ rcode }}"
+# NOTE: no rcode tag here — rcode is null on ClientQuery events, which would
+# drop/garble the series. rcode lives on the responses counter below.
 
 [[transforms.dnstap_metrics.metrics]]
 type = "counter"
-field = "rcode"
-name = "dnstap_responses_total"
+field = "rcode"           # only ClientResponse events carry rcode
+name = "responses_total"  # exported as dnstap_responses_total
 namespace = "dnstap"
 tags.rcode = "{{ rcode }}"
 
@@ -61,7 +79,8 @@ tags.rcode = "{{ rcode }}"
 # ─────────────────────────────────────────────────────────────────────────────
 [sinks.prom_exporter]
 type = "prometheus_exporter"
-inputs = ["dnstap_metrics"]
+# internal_metrics included so /metrics is never empty and exposes pipeline health.
+inputs = ["dnstap_metrics", "internal_metrics"]
 address = "$metrics_listen"
 default_namespace = "dnstap"
 

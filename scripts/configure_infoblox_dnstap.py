@@ -97,7 +97,7 @@ def _build_patch(cfg: cfgmod.Config, schema_field_names: set[str]) -> dict[str, 
 def _snapshot(client: InfobloxClient, refs: list[str], path: Path) -> None:
     snap = {}
     for ref in refs:
-        snap[ref] = client.get(ref, _return_fields="all")
+        snap[ref] = client.get(ref)
     path.write_text(json.dumps(snap, indent=2, default=str))
 
 

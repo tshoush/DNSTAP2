@@ -131,8 +131,8 @@ class InfobloxClient:
     def get_member_dns(self, member_ref: str | None = None) -> dict[str, Any]:
         """Fetch the member:dns object for `member_ref`, or all members."""
         if member_ref:
-            return self.get(f"member:dns/{member_ref}", _return_fields="all")
-        result = self.get("member:dns", _return_fields="all")
+            return self.get(f"member:dns/{member_ref}")
+        result = self.get("member:dns")
         return {"members": result}
 
     def schema(self, object_type: str) -> dict[str, Any]:
