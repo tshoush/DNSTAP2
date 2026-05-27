@@ -1,0 +1,20 @@
+category,source,destination,protocol,port,purpose,exposure,status
+dnstap pipeline,NIOS member 192.168.1.222,Receiver 192.168.1.50,TCP,6000,dnstap stream to Vector (Frame Streams),LAN (firewalld open),verified
+dnstap pipeline,NIOS member 192.168.1.222,Receiver 192.168.1.50,TCP,6001,dnstap stream to DNS-collector (Frame Streams),LAN (firewalld open),verified
+observability,Admin browser,Receiver 192.168.1.50,TCP,3000,Grafana UI,LAN (firewalld open),verified
+observability,Prometheus (local),Receiver 192.168.1.50,TCP,9598,Scrape Vector metrics (dnstap_*),LAN-open; only needs localhost,verified
+observability,Prometheus (local),Receiver 192.168.1.50,TCP,9599,Scrape DNS-collector metrics (dnscollector_*),LAN-open; only needs localhost,verified
+observability,Grafana / operator,Receiver 192.168.1.50,TCP,9090,Prometheus API/UI,LAN-open; could be localhost,verified
+observability,Vector / DNS-collector / Grafana,Receiver 192.168.1.50,TCP,3100,Loki push and query,LAN-open; used via 127.0.0.1,verified
+observability,Prometheus / operator,Receiver 192.168.1.50,TCP,9093,Alertmanager API/UI,LAN-open; used via 127.0.0.1,verified
+observability,Vector / DNS-collector,Receiver 192.168.1.50,UDP,514,syslog/SIEM forward to rsyslog,Binds all-ifaces but firewalld-blocked; via 127.0.0.1 only,verified
+management,Admin,Receiver 192.168.1.50,TCP,22,SSH management,LAN (ssh service),verified
+DNS service,DNS clients,NIOS 192.168.1.222 / 192.168.1.224,UDP,53,DNS query/response,LAN/clients,standard
+DNS service,DNS clients,NIOS 192.168.1.222 / 192.168.1.224,TCP,53,DNS query/response (AXFR/large),LAN/clients,standard
+NIOS management,Admin,Grid Master 192.168.1.224,TCP,443,GUI / WAPI / Grid Manager (HTTPS),LAN/admin,standard
+NIOS management,Admin,NIOS 192.168.1.222 / 192.168.1.224,TCP,22,SSH / remote console,LAN/admin,standard
+NIOS grid,Member 192.168.1.222,Grid Master 192.168.1.224,UDP,1194,Grid VPN tunnel (member-GM default),inter-appliance,standard
+NIOS grid,Member 192.168.1.222,Grid Master 192.168.1.224,TCP,2114,Grid communication (object distribution),inter-appliance,standard
+NIOS grid,Member 192.168.1.222,Grid Master 192.168.1.224,UDP,123,NTP grid time sync,inter-appliance,standard
+NIOS monitoring,Monitoring (optional),NIOS 192.168.1.222 / 192.168.1.224,UDP,161,SNMP poll,LAN/monitoring,standard
+NIOS monitoring,NIOS 192.168.1.222 / 192.168.1.224,Monitoring (optional),UDP,162,SNMP traps,LAN/monitoring,standard
