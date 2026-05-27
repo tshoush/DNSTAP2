@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # install_grafana.sh — install Grafana (OSS) on RHEL/CentOS 7+ and provision a
-# Prometheus datasource + a dnstap DNS dashboard. Pairs with the Prometheus that
-# scrapes the Vector dnstap exporter (:9598).
+# Prometheus datasource + two dashboards: "DNS / dnstap Overview" (Vector, :9598)
+# and "DNS-collector Overview" (optional alternative receiver, :9599). Pairs with
+# the Prometheus rendered by render_prometheus_config.py (scrapes both exporters).
 #
 # Grafana 10.4.x is the last line that supports RHEL 7 / glibc 2.17; v11 needs
 # glibc 2.28+. Override with GRAFANA_VERSION if your host is newer.
@@ -136,6 +137,89 @@ cat > "$PROV/dashboards/json/dnstap-overview.json" <<'EOF'
       "gridPos": {"h": 6, "w": 12, "x": 12, "y": 8},
       "fieldConfig": {"defaults": {"unit": "eps", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
       "targets": [{"refId": "A", "expr": "sum(rate(vector_component_received_events_total{component_id=\"dnstap_in\"}[1m]))", "legendFormat": "events/s"}]
+    }
+  ]
+}
+EOF
+
+# DNS-collector dashboard — provisioned alongside the Vector dashboard. Reads the
+# dnscollector_* series scraped from the optional DNS-collector receiver (:9599,
+# see install_dnscollector_receiver.sh). Panels read "No data" if that receiver
+# isn't installed; the dashboard itself is harmless either way.
+echo "==> DNS-collector dashboard JSON"
+cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
+{
+  "uid": "dnscollector-overview",
+  "title": "DNS-collector Overview (+ A/B vs Vector)",
+  "tags": ["dnstap", "dns", "dnscollector"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": {"from": "now-15m", "to": "now"},
+  "templating": {"list": []},
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "QPS (queries/s)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "qps", "decimals": 1, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"},
+      "targets": [{"refId": "A", "expr": "sum(rate(dnscollector_queries_total[1m]))"}]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Built-in throughput_ops",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "ops", "decimals": 0}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"},
+      "targets": [{"refId": "A", "expr": "sum(dnscollector_throughput_ops)"}]
+    },
+    {
+      "id": 3, "type": "stat", "title": "NXDOMAIN/s",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "qps", "decimals": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 5}, {"color": "red", "value": 20}]}}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+      "targets": [{"refId": "A", "expr": "sum(rate(dnscollector_rcodes_total{return_code=\"NXDOMAIN\"}[1m]))"}]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Replies/s",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "qps", "decimals": 1}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"},
+      "targets": [{"refId": "A", "expr": "sum(rate(dnscollector_replies_total[1m]))"}]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "QPS by query type",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "fieldConfig": {"defaults": {"unit": "qps", "custom": {"drawStyle": "line", "fillOpacity": 20, "stacking": {"mode": "normal"}}}, "overrides": []},
+      "targets": [{"refId": "A", "expr": "sum by (query_type) (rate(dnscollector_qtypes_total[1m]))", "legendFormat": "{{query_type}}"}]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Responses by rcode",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "fieldConfig": {"defaults": {"unit": "qps", "custom": {"drawStyle": "line", "fillOpacity": 20, "stacking": {"mode": "normal"}}}, "overrides": []},
+      "targets": [{"refId": "A", "expr": "sum by (return_code) (rate(dnscollector_rcodes_total[1m]))", "legendFormat": "{{return_code}}"}]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "A/B QPS — Vector vs DNS-collector (whichever the NIOS member feeds)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 16, "x": 0, "y": 14},
+      "fieldConfig": {"defaults": {"unit": "qps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2}}, "overrides": []},
+      "targets": [
+        {"refId": "A", "expr": "sum(rate(dnscollector_queries_total[1m]))", "legendFormat": "DNS-collector (:6001)"},
+        {"refId": "B", "expr": "sum(rate(dnstap_responses_total[1m]))", "legendFormat": "Vector (:6000)"}
+      ]
+    },
+    {
+      "id": 8, "type": "table", "title": "Top domains",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 14},
+      "options": {"showHeader": true},
+      "targets": [{"refId": "A", "expr": "topk(10, dnscollector_top_domains)", "format": "table", "instant": true, "legendFormat": "{{domain}}"}]
     }
   ]
 }

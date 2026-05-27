@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -40,6 +41,11 @@ def main(argv: list[str] | None = None) -> int:
         {
             "scrape_interval": cfg.prometheus.scrape_interval,
             "vector_metrics_target": _vector_metrics_target(cfg.vector.metrics_listen),
+            # Optional alternative receiver; matches install_dnscollector_receiver.sh
+            # PROM_PORT default (9599). Override via DNSCOLLECTOR_METRICS_TARGET.
+            "dnscollector_metrics_target": os.environ.get(
+                "DNSCOLLECTOR_METRICS_TARGET", "localhost:9599"
+            ),
         },
     )
 

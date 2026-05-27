@@ -16,6 +16,16 @@ scrape_configs:
         labels:
           source: vector
 
+  # Optional alternative receiver: DNS-collector (dmachard), installed alongside
+  # Vector by scripts/install_dnscollector_receiver.sh on :9599 (dnscollector_*
+  # metrics). Harmless if not installed — Prometheus simply shows this job down.
+  - job_name: dnscollector
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["$dnscollector_metrics_target"]
+        labels:
+          source: dnscollector
+
   - job_name: prometheus_self
     static_configs:
       - targets: ["localhost:9090"]
