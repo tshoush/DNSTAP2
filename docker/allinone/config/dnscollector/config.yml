@@ -1,0 +1,44 @@
+# DNS-collector — dnstap receiver for the all-in-one container (pipelines, v2.x).
+# Loki is on localhost here (everything shares the container's loopback).
+global:
+  trace:
+    verbose: false
+  server-identity: "dnscollector"
+  worker:
+    interval-monitor: 10
+
+pipelines:
+  # ---- input: dnstap frame-streams from NIOS / InfoBlox ----
+  - name: tap
+    dnstap:
+      listen-ip: 0.0.0.0
+      listen-port: 6001
+    transforms:
+      normalize:
+        qname-lowercase: true
+    routing-policy:
+      forward: [ metrics, lokiout, fileout ]
+      dropped: [ ]
+
+  # ---- output: Prometheus metrics (dnscollector_* on :9599) ----
+  - name: metrics
+    prometheus:
+      listen-ip: 0.0.0.0
+      listen-port: 9599
+      prometheus-prefix: "dnscollector"
+      basic-auth-enable: false
+
+  # ---- output: Grafana Loki (same container, localhost) ----
+  - name: lokiout
+    lokiclient:
+      server-url: "http://localhost:3100/loki/api/v1/push"
+      job-name: "dnscollector"
+      mode: "flat-json"
+
+  # ---- output: local JSONL archive ----
+  - name: fileout
+    logfile:
+      file-path: "/var/log/dnscollector/dnscollector-events.jsonl"
+      mode: flat-json
+      max-size: 100
+      max-files: 5

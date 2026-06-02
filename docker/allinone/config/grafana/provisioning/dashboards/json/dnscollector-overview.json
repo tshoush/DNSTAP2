@@ -1,0 +1,356 @@
+{
+  "uid": "dnscollector-overview",
+  "title": "DNS-collector Overview (+ A/B vs Vector)",
+  "tags": [
+    "dnstap",
+    "dns",
+    "dnscollector"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "text",
+      "title": "How these metrics are calculated",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**How these stats are computed.**  `rate(...[1m])` = the average per-second change of a counter over the last 1 minute. (Each panel also has an info icon at its top-left with the same note.)\n\n| Panel | PromQL expression |\n|---|---|\n| **QPS (queries/s)** | `sum(rate(dnscollector_queries_total[1m]))` |\n| **Built-in throughput_ops** | `sum(dnscollector_throughput_ops)` (DNS-collector internal ops/sec gauge; instantaneous, not a counter rate) |\n| **NXDOMAIN/s** | `sum(rate(dnscollector_rcodes_total{return_code=\"NXDOMAIN\"}[1m]))` |\n| **Replies/s** | `sum(rate(dnscollector_replies_total[1m]))` |\n| **QPS by query type** | `sum by (query_type) (rate(dnscollector_qtypes_total[1m]))` |\n| **Responses by rcode** | `sum by (return_code) (rate(dnscollector_rcodes_total[1m]))` |\n"
+      }
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "QPS (queries/s)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "qps",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(dnscollector_queries_total[1m]))"
+        }
+      ],
+      "description": "Client DNS queries per second, averaged over the last 1 minute. PromQL: sum(rate(dnscollector_queries_total[1m])) \u2014 the per-second increase of the queries counter, summed across all streams."
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Built-in throughput_ops",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(dnscollector_throughput_ops)"
+        }
+      ],
+      "description": "DNS-collector's own internal throughput gauge (operations/sec). This is an instantaneous value the collector reports itself, NOT a rate() of a counter. PromQL: sum(dnscollector_throughput_ops)."
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "NXDOMAIN/s",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "qps",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(dnscollector_rcodes_total{return_code=\"NXDOMAIN\"}[1m]))"
+        }
+      ],
+      "description": "Responses per second carrying rcode NXDOMAIN (queried name does not exist), 1-minute rate. PromQL: sum(rate(dnscollector_rcodes_total{return_code=\"NXDOMAIN\"}[1m])). A sustained climb can signal typos, stale configs, or malware domain-generation activity."
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Replies/s",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "qps",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(dnscollector_replies_total[1m]))"
+        }
+      ],
+      "description": "DNS responses sent back to clients per second, 1-minute rate. PromQL: sum(rate(dnscollector_replies_total[1m])). In a healthy pipeline this tracks QPS closely."
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "QPS by query type",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "qps",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (query_type) (rate(dnscollector_qtypes_total[1m]))",
+          "legendFormat": "{{query_type}}"
+        }
+      ],
+      "description": "Query rate broken down by DNS record type (A, AAAA, MX, TXT, ...), 1-minute rate per type. PromQL: sum by (query_type) (rate(dnscollector_qtypes_total[1m]))."
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Responses by rcode",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "qps",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (return_code) (rate(dnscollector_rcodes_total[1m]))",
+          "legendFormat": "{{return_code}}"
+        }
+      ],
+      "description": "Response rate broken down by DNS response code (NOERROR, NXDOMAIN, SERVFAIL, ...), 1-minute rate. PromQL: sum by (return_code) (rate(dnscollector_rcodes_total[1m]))."
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "A/B QPS \u2014 Vector vs DNS-collector (whichever the NIOS member feeds)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 22
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "qps",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(dnscollector_queries_total[1m]))",
+          "legendFormat": "DNS-collector (:6001)"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(dnstap_responses_total[1m]))",
+          "legendFormat": "Vector (:6000)"
+        }
+      ],
+      "description": "Side-by-side query rate from each receiver. Only the one a NIOS member is actually feeding shows data; the Vector (:6000) line stays flat unless Vector is installed and receiving."
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Top domains",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 22
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, dnscollector_top_domains)",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{domain}}"
+        }
+      ],
+      "description": "Top 10 most-queried domains \u2014 instant snapshot of DNS-collector's dnscollector_top_domains gauge. PromQL: topk(10, dnscollector_top_domains)."
+    }
+  ]
+}
