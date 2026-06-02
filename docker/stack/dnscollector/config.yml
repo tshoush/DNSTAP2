@@ -1,0 +1,46 @@
+# DNS-collector — dnstap receiver for the Docker stack (pipelines model, v2.x).
+# Adapted from scripts/install_dnscollector_receiver.sh: container hostnames are
+# used for Loki, and the syslog/SIEM output is dropped (no syslog server in the
+# stack). Add it back under routing-policy.forward if you wire a SIEM in.
+global:
+  trace:
+    verbose: false
+  server-identity: "dnscollector"
+  worker:
+    interval-monitor: 10
+
+pipelines:
+  # ---- input: dnstap frame-streams from NIOS / InfoBlox ----
+  - name: tap
+    dnstap:
+      listen-ip: 0.0.0.0
+      listen-port: 6001
+    transforms:
+      normalize:
+        qname-lowercase: true
+    routing-policy:
+      forward: [ metrics, lokiout, fileout ]
+      dropped: [ ]
+
+  # ---- output: Prometheus metrics (dnscollector_* on :9599) ----
+  - name: metrics
+    prometheus:
+      listen-ip: 0.0.0.0
+      listen-port: 9599
+      prometheus-prefix: "dnscollector"
+      basic-auth-enable: false
+
+  # ---- output: Grafana Loki (job=dnscollector) ----
+  - name: lokiout
+    lokiclient:
+      server-url: "http://loki:3100/loki/api/v1/push"
+      job-name: "dnscollector"
+      mode: "flat-json"
+
+  # ---- output: local JSONL archive (persisted in the dnscollector-data volume) ----
+  - name: fileout
+    logfile:
+      file-path: "/var/log/dnscollector/dnscollector-events.jsonl"
+      mode: flat-json
+      max-size: 100
+      max-files: 5

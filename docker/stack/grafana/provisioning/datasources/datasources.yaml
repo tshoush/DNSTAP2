@@ -1,0 +1,15 @@
+# Grafana datasources — provisioned at startup. UIDs match the dashboard JSON
+# (uid: prometheus / uid: loki), so the committed dashboards bind without edits.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100

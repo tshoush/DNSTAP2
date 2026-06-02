@@ -1,0 +1,12 @@
+# Grafana dashboard provider — loads JSON dashboards from the json/ folder into
+# a "DNS" folder. The DNS-collector Overview dashboard is shipped in json/.
+apiVersion: 1
+providers:
+  - name: dnstap
+    orgId: 1
+    folder: DNS
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards/json

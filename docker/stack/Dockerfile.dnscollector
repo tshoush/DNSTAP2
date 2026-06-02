@@ -1,0 +1,32 @@
+# Dockerfile.dnscollector — dmachard/DNS-collector from the pinned release binary.
+#
+# Built from the official release tarball (same source the native installer uses,
+# scripts/install_dnscollector_receiver.sh) so the version is pinned and the image
+# name doesn't depend on an upstream Docker Hub tag.
+#
+# Build arg DNSCOL_VERSION selects the release; TARGETARCH is supplied by
+# buildx/compose (amd64 by default; pass arm64 on Apple Silicon hosts).
+
+FROM debian:12-slim
+
+ARG DNSCOL_VERSION=2.2.3
+ARG TARGETARCH=amd64
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates tar \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    url="https://github.com/dmachard/DNS-collector/releases/download/v${DNSCOL_VERSION}/DNS-collector_${DNSCOL_VERSION}_linux_${TARGETARCH}.tar.gz"; \
+    curl -fSL --retry 3 -o /tmp/dc.tgz "$url"; \
+    mkdir -p /tmp/dc; tar -xzf /tmp/dc.tgz -C /tmp/dc; \
+    # binary name has varied across releases — pick the executable, not docs
+    bin="$(find /tmp/dc -type f \( -name 'DNScollector' -o -name 'DNS-collector' -o -name 'go-dnscollector' -o -name 'dnscollector' \) | head -1)"; \
+    [ -n "$bin" ] || bin="$(find /tmp/dc -maxdepth 2 -type f -perm -u+x ! -iname '*.md' ! -iname 'LICENSE*' ! -iname '*.yml' | head -1)"; \
+    install -m 0755 "$bin" /usr/local/bin/dnscollector; \
+    rm -rf /tmp/dc /tmp/dc.tgz; \
+    /usr/local/bin/dnscollector -version || true
+
+EXPOSE 6001 9599
+ENTRYPOINT ["/usr/local/bin/dnscollector"]
+CMD ["-config", "/etc/dnscollector/config.yml"]

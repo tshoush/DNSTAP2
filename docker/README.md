@@ -1,5 +1,11 @@
 # docker/ — containerized `dnstap2` debug collector
 
+> **Looking for the full stack?** If you want the complete observability stack
+> (DNS-collector receiver + Prometheus + Loki + Grafana, everything except
+> InfoBlox and the DNS server) in one `docker compose up`, see
+> [`stack/`](stack/README.md). The single image documented below is just the
+> Python debug collector.
+
 > **Scope note.** The DNSTAP2 production data plane is **native binaries, no
 > Docker** (see `../CLAUDE.md`). These images package **only** the Phase-1
 > `dnstap2` Python *debug collector* — the `dnstap2 --tcp … --sink …` console
