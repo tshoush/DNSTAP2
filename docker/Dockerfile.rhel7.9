@@ -1,0 +1,104 @@
+# syntax=docker/dockerfile:1
+#
+# Dockerfile.rhel7.9 — dnstap2 debug collector on Red Hat Enterprise Linux 7.9
+#
+# Why this file is more involved than Dockerfile.mac:
+#   RHEL 7.9 ships glibc 2.17, Python 2.7 / 3.6, and OpenSSL 1.0.2k. The dnstap2
+#   package requires Python >= 3.11 (see ../pyproject.toml), and CPython 3.10+
+#   requires OpenSSL >= 1.1.1. Neither is available in the RHEL 7.9 base repos,
+#   so the builder stage compiles BOTH OpenSSL 1.1.1 and Python 3.11 from source.
+#   This mirrors the glibc-2.17 / RHEL 7 reality documented in
+#   ../scripts/lib/platform_info.py and ../CLAUDE.md.
+#
+# Base image is the official Red Hat UBI 7.9 (free, no subscription needed):
+#   registry.access.redhat.com/ubi7/ubi:7.9
+#
+# Build:
+#   docker build -f docker/Dockerfile.rhel7.9 -t dnstap2:rhel7.9 .
+#
+# Run (listen on TCP 6000, print events to stdout):
+#   docker run --rm -p 6000:6000 dnstap2:rhel7.9 --tcp 0.0.0.0:6000 --sink stdout
+
+ARG UBI_IMAGE=registry.access.redhat.com/ubi7/ubi:7.9
+ARG OPENSSL_VERSION=1.1.1w
+ARG PYTHON_VERSION=3.11.9
+
+# ---------------------------------------------------------------------------
+# Stage 1: build OpenSSL 1.1.1 + Python 3.11 from source, then the dnstap2 wheel
+# ---------------------------------------------------------------------------
+FROM ${UBI_IMAGE} AS build
+ARG OPENSSL_VERSION
+ARG PYTHON_VERSION
+
+RUN yum -y install \
+        gcc gcc-c++ make \
+        wget tar \
+        zlib-devel bzip2-devel xz-devel \
+        libffi-devel readline-devel \
+        sqlite-devel ncurses-devel \
+        perl \
+    && yum clean all
+
+# --- OpenSSL 1.1.1 (CPython 3.10+ needs >= 1.1.1; RHEL 7.9 only has 1.0.2k) ---
+WORKDIR /usr/src
+RUN wget -q "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" \
+    && tar xzf "openssl-${OPENSSL_VERSION}.tar.gz" \
+    && cd "openssl-${OPENSSL_VERSION}" \
+    && ./config --prefix=/opt/openssl --openssldir=/opt/openssl shared zlib \
+    && make -j"$(nproc)" \
+    && make install_sw \
+    && cd .. && rm -rf "openssl-${OPENSSL_VERSION}" "openssl-${OPENSSL_VERSION}.tar.gz"
+
+# --- CPython 3.11, linked against the freshly built OpenSSL ---
+RUN wget -q "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz" \
+    && tar xzf "Python-${PYTHON_VERSION}.tgz" \
+    && cd "Python-${PYTHON_VERSION}" \
+    && ./configure \
+        --prefix=/opt/python311 \
+        --with-openssl=/opt/openssl \
+        --with-openssl-rpath=auto \
+        --enable-optimizations \
+        --with-ensurepip=install \
+    && make -j"$(nproc)" \
+    && make altinstall \
+    && cd .. && rm -rf "Python-${PYTHON_VERSION}" "Python-${PYTHON_VERSION}.tgz"
+
+ENV PATH=/opt/python311/bin:$PATH \
+    LD_LIBRARY_PATH=/opt/openssl/lib:/opt/python311/lib
+
+# --- Build the dnstap2 wheel ---
+WORKDIR /src
+RUN python3.11 -m pip install --no-cache-dir --upgrade pip build
+COPY pyproject.toml README.md ./
+COPY src ./src
+RUN python3.11 -m build --wheel --outdir /dist
+
+# ---------------------------------------------------------------------------
+# Stage 2: lean runtime — copy the compiled toolchain + install the wheel
+# ---------------------------------------------------------------------------
+FROM ${UBI_IMAGE} AS runtime
+
+# Carry over the from-source OpenSSL and Python 3.11 (no compilers in runtime).
+COPY --from=build /opt/openssl /opt/openssl
+COPY --from=build /opt/python311 /opt/python311
+COPY --from=build /dist/*.whl /tmp/
+
+ENV PATH=/opt/python311/bin:$PATH \
+    LD_LIBRARY_PATH=/opt/openssl/lib:/opt/python311/lib
+
+RUN python3.11 -m pip install --no-cache-dir /tmp/*.whl \
+    && rm -f /tmp/*.whl \
+    # symlink the console entry point so `dnstap2` is on PATH for the entrypoint
+    && ln -sf /opt/python311/bin/dnstap2 /usr/local/bin/dnstap2
+
+# Unprivileged runtime user — the collector only binds a high port.
+RUN useradd --create-home --uid 10001 dnstap
+USER dnstap
+WORKDIR /home/dnstap
+
+# dnstap Frame Streams over TCP (debug collector default listen port).
+EXPOSE 6000
+
+# Secrets (e.g. SPLUNK_HEC_TOKEN) come from the environment, never baked in.
+ENTRYPOINT ["dnstap2"]
+CMD ["--tcp", "0.0.0.0:6000", "--sink", "stdout"]

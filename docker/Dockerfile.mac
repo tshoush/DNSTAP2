@@ -1,0 +1,50 @@
+# syntax=docker/dockerfile:1
+#
+# Dockerfile.mac — dnstap2 debug collector for local development on macOS
+# (Docker Desktop, Apple Silicon or Intel — image is arch-agnostic).
+#
+# This packages ONLY the Phase-1 `dnstap2` Python debug collector, not the
+# production Vector / DNS-collector data plane (see ../CLAUDE.md). Use it to
+# receive dnstap Frame Streams locally and print / archive decoded events.
+#
+# Build:
+#   docker build -f docker/Dockerfile.mac -t dnstap2:mac .
+#   # multi-arch (Apple Silicon + amd64):
+#   docker buildx build --platform linux/arm64,linux/amd64 -f docker/Dockerfile.mac -t dnstap2:mac .
+#
+# Run (listen on TCP 6000, print events to stdout):
+#   docker run --rm -p 6000:6000 dnstap2:mac --tcp 0.0.0.0:6000 --sink stdout
+#
+# Run (append decoded events to a JSONL file on the host):
+#   docker run --rm -p 6000:6000 -v "$PWD/out":/data dnstap2:mac \
+#       --tcp 0.0.0.0:6000 --sink jsonl --path /data/events.jsonl
+
+FROM python:3.12-slim AS build
+
+# Build the wheel in an isolated stage so the runtime image stays lean.
+WORKDIR /src
+RUN python -m pip install --no-cache-dir --upgrade pip build
+COPY pyproject.toml README.md ./
+COPY src ./src
+RUN python -m build --wheel --outdir /dist
+
+
+FROM python:3.12-slim AS runtime
+
+# Run as an unprivileged user — the collector only needs to bind a high port.
+RUN useradd --create-home --uid 10001 dnstap
+WORKDIR /home/dnstap
+
+COPY --from=build /dist/*.whl /tmp/
+RUN python -m pip install --no-cache-dir /tmp/*.whl && rm -f /tmp/*.whl
+
+USER dnstap
+
+# dnstap Frame Streams over TCP (the debug collector's default listen port).
+EXPOSE 6000
+
+# Secrets (e.g. SPLUNK_HEC_TOKEN) come from the environment, never baked in.
+#   docker run -e SPLUNK_HEC_TOKEN=... dnstap2:mac --tcp 0.0.0.0:6000 \
+#       --sink splunk --splunk-url https://splunk:8088/services/collector/event
+ENTRYPOINT ["dnstap2"]
+CMD ["--tcp", "0.0.0.0:6000", "--sink", "stdout"]
