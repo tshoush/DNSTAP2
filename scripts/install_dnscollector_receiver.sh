@@ -41,7 +41,20 @@ else
   TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
   URL="https://github.com/dmachard/DNS-collector/releases/download/v${DNSCOL_VERSION}/DNS-collector_${DNSCOL_VERSION}_linux_${A}.tar.gz"
   echo "    downloading $URL"
-  curl -fSL --retry 3 -o "$TMP/dc.tgz" "$URL"
+  # Hosts behind a TLS-intercepting proxy whose corporate root CA is not in the
+  # trust store fail cert verification. Honor DNSTAP_INSECURE_DOWNLOADS=1 to skip
+  # verification up front; otherwise try verified first and fall back to -k.
+  case "${DNSTAP_INSECURE_DOWNLOADS:-}" in
+    1|true|yes|on|TRUE|YES|ON)
+      echo "    ! DNSTAP_INSECURE_DOWNLOADS set — TLS certificate verification disabled"
+      curl -fSL --retry 3 -k -o "$TMP/dc.tgz" "$URL" ;;
+    *)
+      if ! curl -fSL --retry 3 -o "$TMP/dc.tgz" "$URL"; then
+        echo "    ! download failed (likely TLS cert verification — no corporate root CA)."
+        echo "      retrying WITHOUT certificate verification (-k)..."
+        curl -fSL --retry 3 -k -o "$TMP/dc.tgz" "$URL"
+      fi ;;
+  esac
   tar -xzf "$TMP/dc.tgz" -C "$TMP"
   # binary name has varied across releases; pick the executable, not docs
   SRC="$(find "$TMP" -type f \( -name 'DNScollector' -o -name 'DNS-collector' -o -name 'go-dnscollector' -o -name 'dnscollector' \) | head -1)"
