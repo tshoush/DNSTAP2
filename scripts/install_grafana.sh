@@ -169,14 +169,30 @@ cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
         "name": "topN",
         "type": "custom",
         "label": "Top N",
-        "description": "How many rows the Top clients / domains / recursive tables show.",
+        "description": "How many rows the Top clients / domains / NXDOMAIN / SERVFAIL / recursive tables show.",
         "query": "5,10,20,50",
-        "current": {"text": "10", "value": "10"},
+        "current": {
+          "text": "10",
+          "value": "10"
+        },
         "options": [
-          {"text": "5", "value": "5"},
-          {"text": "10", "value": "10", "selected": true},
-          {"text": "20", "value": "20"},
-          {"text": "50", "value": "50"}
+          {
+            "text": "5",
+            "value": "5"
+          },
+          {
+            "text": "10",
+            "value": "10",
+            "selected": true
+          },
+          {
+            "text": "20",
+            "value": "20"
+          },
+          {
+            "text": "50",
+            "value": "50"
+          }
         ],
         "includeAll": false,
         "multi": false
@@ -189,10 +205,10 @@ cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
       "type": "text",
       "title": "How these metrics are calculated",
       "gridPos": {
-        "h": 8,
-        "w": 24,
         "x": 0,
-        "y": 0
+        "y": 0,
+        "w": 24,
+        "h": 6
       },
       "options": {
         "mode": "markdown",
@@ -208,10 +224,10 @@ cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
         "uid": "prometheus"
       },
       "gridPos": {
-        "h": 6,
-        "w": 6,
         "x": 0,
-        "y": 8
+        "y": 6,
+        "w": 6,
+        "h": 5
       },
       "fieldConfig": {
         "defaults": {
@@ -258,10 +274,10 @@ cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
         "uid": "prometheus"
       },
       "gridPos": {
-        "h": 6,
-        "w": 6,
         "x": 6,
-        "y": 8
+        "y": 6,
+        "w": 6,
+        "h": 5
       },
       "fieldConfig": {
         "defaults": {
@@ -296,10 +312,10 @@ cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
         "uid": "prometheus"
       },
       "gridPos": {
-        "h": 6,
-        "w": 6,
         "x": 12,
-        "y": 8
+        "y": 6,
+        "w": 6,
+        "h": 5
       },
       "fieldConfig": {
         "defaults": {
@@ -351,10 +367,10 @@ cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
         "uid": "prometheus"
       },
       "gridPos": {
-        "h": 6,
-        "w": 6,
         "x": 18,
-        "y": 8
+        "y": 6,
+        "w": 6,
+        "h": 5
       },
       "fieldConfig": {
         "defaults": {
@@ -389,10 +405,10 @@ cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
         "uid": "prometheus"
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
         "x": 0,
-        "y": 14
+        "y": 27,
+        "w": 12,
+        "h": 8
       },
       "fieldConfig": {
         "defaults": {
@@ -425,10 +441,10 @@ cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
         "uid": "prometheus"
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
         "x": 12,
-        "y": 14
+        "y": 27,
+        "w": 12,
+        "h": 8
       },
       "fieldConfig": {
         "defaults": {
@@ -461,10 +477,10 @@ cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
         "uid": "prometheus"
       },
       "gridPos": {
-        "h": 8,
-        "w": 16,
         "x": 0,
-        "y": 22
+        "y": 35,
+        "w": 24,
+        "h": 7
       },
       "fieldConfig": {
         "defaults": {
@@ -494,16 +510,16 @@ cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
     {
       "id": 8,
       "type": "table",
-      "title": "Top $topN domains",
+      "title": "Top domains (most-queried names)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 22
+        "x": 0,
+        "y": 19,
+        "w": 12,
+        "h": 8
       },
       "options": {
         "showHeader": true
@@ -517,21 +533,88 @@ cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
           "legendFormat": "{{domain}}"
         }
       ],
-      "description": "Top $topN most-queried domains \u2014 instant snapshot of DNS-collector's dnscollector_top_domains gauge. PromQL: topk($topN, dnscollector_top_domains). $topN is selectable at the top of the dashboard."
+      "description": "Top 10 most-queried domains \u2014 instant snapshot of DNS-collector's dnscollector_top_domains gauge. PromQL: topk($topN, dnscollector_top_domains).",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "instance": true,
+              "job": true,
+              "source": true,
+              "stream_id": true,
+              "__name__": true
+            },
+            "renameByName": {
+              "domain": "Domain",
+              "Value": "Queries"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Queries",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ]
     },
     {
       "id": 9,
-      "type": "table",
-      "title": "Top $topN clients (requesters)",
+      "type": "timeseries",
+      "title": "Queries by operation \u2014 client vs recursive (resolver)",
+      "description": "Per-second rate of dnstap operations by type. CLIENT_* = stub<->server; RESOLVER_* = the server's own recursive lookups to upstream authoritative servers (cache misses). PromQL: sum by (operation) (rate(dnscollector_operations_total[1m]))",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
-        "h": 8,
-        "w": 8,
         "x": 0,
-        "y": 30
+        "y": 11,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "qps",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (operation) (rate(dnscollector_operations_total[1m]))",
+          "legendFormat": "{{operation}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Top clients (most-querying requesters)",
+      "description": "Top client IPs by query volume. PromQL: topk($topN, dnscollector_top_requesters). Recursion is server-side, so these are the stub clients whose cache-miss queries the server then resolves upstream.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 19,
+        "w": 12,
+        "h": 8
       },
       "options": {
         "showHeader": true
@@ -541,25 +624,176 @@ cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
           "refId": "A",
           "expr": "topk($topN, dnscollector_top_requesters)",
           "format": "table",
-          "instant": true,
-          "legendFormat": "{{ip}}"
+          "instant": true
         }
       ],
-      "description": "Top $topN client IPs by query volume \u2014 instant snapshot of dnscollector_top_requesters. PromQL: topk($topN, dnscollector_top_requesters). Depth is bounded by 'top-n' in the collector's prometheus output (install_dnscollector_receiver.sh, default 50)."
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "instance": true,
+              "job": true,
+              "source": true,
+              "stream_id": true,
+              "__name__": true
+            },
+            "renameByName": {
+              "ip": "Client IP",
+              "Value": "Queries"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Queries",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ]
     },
     {
-      "id": 10,
+      "id": 11,
       "type": "table",
-      "title": "Top $topN recursive query domains",
+      "title": "Top NXDOMAIN domains",
+      "description": "Top $topN domains returning NXDOMAIN (name does not exist). PromQL: topk($topN, dnscollector_top_nonexistent_domains). Spikes can signal typos, stale configs, or malware DGA activity.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 8,
+        "h": 8
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "topk($topN, dnscollector_top_nonexistent_domains)",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "instance": true,
+              "job": true,
+              "source": true,
+              "stream_id": true,
+              "__name__": true
+            },
+            "renameByName": {
+              "domain": "Domain",
+              "Value": "NXDOMAIN"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "NXDOMAIN",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "Top SERVFAIL domains",
+      "description": "Top $topN domains returning SERVFAIL (resolution failed). PromQL: topk($topN, dnscollector_top_servfail_domains). Sustained SERVFAIL points to upstream/DNSSEC/delegation problems.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 43,
+        "w": 8,
+        "h": 8
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "topk($topN, dnscollector_top_servfail_domains)",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "instance": true,
+              "job": true,
+              "source": true,
+              "stream_id": true,
+              "__name__": true
+            },
+            "renameByName": {
+              "domain": "Domain",
+              "Value": "SERVFAIL"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "SERVFAIL",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "Top recursive query domains",
+      "description": "Top $topN domains in RECURSIVE (resolver -> upstream) queries, from Loki where dnstap.operation=RESOLVER_QUERY over the dashboard time range. Needs Loki (full stack).",
       "datasource": {
         "type": "loki",
         "uid": "loki"
       },
       "gridPos": {
-        "h": 8,
+        "x": 16,
+        "y": 43,
         "w": 8,
-        "x": 8,
-        "y": 30
+        "h": 8
       },
       "options": {
         "showHeader": true
@@ -575,63 +809,36 @@ cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
           "queryType": "instant"
         }
       ],
-      "description": "Top $topN domains in RECURSIVE (resolver \u2192 upstream) queries, from Loki where dnstap.operation=RESOLVER_QUERY, over the dashboard time range. LogQL: topk($topN, sum by (dns_qname) (count_over_time({job=\"dnscollector\"} | json | dnstap_operation=`RESOLVER_QUERY` [$__range]))). Client-vs-recursive is the dnstap.operation field."
-    },
-    {
-      "id": 11,
-      "type": "table",
-      "title": "Top $topN NXDOMAIN domains",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 30
-      },
-      "options": {
-        "showHeader": true
-      },
-      "targets": [
+      "transformations": [
         {
-          "refId": "A",
-          "expr": "topk($topN, dnscollector_top_nonexistent_domains)",
-          "format": "table",
-          "instant": true,
-          "legendFormat": "{{domain}}"
-        }
-      ],
-      "description": "Top $topN domains returning NXDOMAIN (name does not exist) \u2014 instant snapshot of dnscollector_top_nonexistent_domains. PromQL: topk($topN, dnscollector_top_nonexistent_domains). Useful for spotting typos, stale configs, or malware domain-generation activity."
-    },
-    {
-      "id": 12,
-      "type": "table",
-      "title": "Top $topN SERVFAIL domains",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 38
-      },
-      "options": {
-        "showHeader": true
-      },
-      "targets": [
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "instance": true,
+              "job": true,
+              "source": true,
+              "stream_id": true,
+              "__name__": true
+            },
+            "renameByName": {
+              "dns_qname": "Domain",
+              "Value": "Recursive queries"
+            }
+          }
+        },
         {
-          "refId": "A",
-          "expr": "topk($topN, dnscollector_top_servfail_domains)",
-          "format": "table",
-          "instant": true,
-          "legendFormat": "{{domain}}"
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Recursive queries",
+                "desc": true
+              }
+            ]
+          }
         }
-      ],
-      "description": "Top $topN domains returning SERVFAIL (resolution failed) \u2014 instant snapshot of dnscollector_top_servfail_domains. PromQL: topk($topN, dnscollector_top_servfail_domains). Sustained SERVFAIL on a domain points to upstream/DNSSEC/delegation problems."
+      ]
     }
   ]
 }
