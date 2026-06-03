@@ -43,6 +43,40 @@ fi
 PY=".venv/bin/python"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# TLS trust — point Python at the system CA bundle so HTTPS downloads
+# (Vector/Prometheus from GitHub) can verify certs.
+#
+# A self-compiled / pyenv Python often has an OpenSSL default cert path that
+# doesn't exist on the host, which surfaces as:
+#   urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] ... unable to get local
+#   issuer certificate
+# On RHEL the corporate (Marriott) root CA is already in the system trust
+# store, so simply exporting SSL_CERT_FILE/SSL_CERT_DIR fixes verification
+# without disabling it. We only set this if the user hasn't already.
+# ─────────────────────────────────────────────────────────────────────────────
+if [[ -z "${SSL_CERT_FILE:-}" ]]; then
+  for _ca in \
+    /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+    /etc/pki/tls/certs/ca-bundle.crt \
+    /etc/ssl/certs/ca-certificates.crt \
+    /etc/ssl/certs/ca-bundle.crt \
+    /etc/ssl/cert.pem ; do
+    if [[ -r "$_ca" ]]; then
+      export SSL_CERT_FILE="$_ca"
+      [[ -d /etc/ssl/certs ]]    && export SSL_CERT_DIR="${SSL_CERT_DIR:-/etc/ssl/certs}"
+      [[ -d /etc/pki/tls/certs ]] && export SSL_CERT_DIR="${SSL_CERT_DIR:-/etc/pki/tls/certs}"
+      echo "  TLS  : using system CA bundle $SSL_CERT_FILE for HTTPS downloads"
+      break
+    fi
+  done
+  if [[ -z "${SSL_CERT_FILE:-}" ]]; then
+    echo "  ! TLS: no system CA bundle found. If a download fails with"
+    echo "        CERTIFICATE_VERIFY_FAILED, export SSL_CERT_FILE=/path/to/ca-bundle.crt"
+    echo "        and re-run, or pre-stage the tarball into ./vendor/ (see QUICKSTART)."
+  fi
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Auto-detect WSL/no-systemd → flip --no-systemd unless user already passed it
 # ─────────────────────────────────────────────────────────────────────────────
 if [[ $NO_SYSTEMD -eq 0 ]]; then
