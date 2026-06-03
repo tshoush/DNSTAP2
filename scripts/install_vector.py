@@ -17,7 +17,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import logging
+import os
 import shutil
+import ssl
 import sys
 import tarfile
 import tempfile
@@ -39,10 +41,26 @@ VECTOR_RELEASE_URL = (
 VECTOR_SHA_URL = VECTOR_RELEASE_URL + ".sha256"
 
 
+def _ssl_context() -> ssl.SSLContext | None:
+    """Return an unverified SSL context when DNSTAP_INSECURE_DOWNLOADS is set.
+
+    Escape hatch for hosts behind a TLS-intercepting proxy whose root CA is
+    not in the trust store (corporate networks). Verification stays ON by
+    default; this only disables it when explicitly opted in via env var.
+    """
+    if os.environ.get("DNSTAP_INSECURE_DOWNLOADS", "").lower() in ("1", "true", "yes", "on"):
+        print("  ! DNSTAP_INSECURE_DOWNLOADS set — skipping TLS certificate verification")
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    return None
+
+
 def _download(url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     print(f"  downloading {url}")
-    with urllib.request.urlopen(url, timeout=60) as resp, dest.open("wb") as fp:
+    with urllib.request.urlopen(url, timeout=60, context=_ssl_context()) as resp, dest.open("wb") as fp:
         shutil.copyfileobj(resp, fp)
 
 
@@ -56,7 +74,7 @@ def _sha256(path: Path) -> str:
 
 def _maybe_verify(tarball: Path, sha_url: str) -> None:
     try:
-        with urllib.request.urlopen(sha_url, timeout=15) as resp:
+        with urllib.request.urlopen(sha_url, timeout=15, context=_ssl_context()) as resp:
             published = resp.read().decode().split()[0].strip()
     except Exception as e:  # noqa: BLE001
         print(f"  ! skipping SHA verification ({e})")

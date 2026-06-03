@@ -9,6 +9,7 @@
 #   ./scripts/setup.sh --apply           # also apply the InfoBlox dnstap config
 #   ./scripts/setup.sh --skip-install    # render configs only
 #   ./scripts/setup.sh --no-systemd      # do not write systemd units (auto-on under WSL2 without systemd)
+#   ./scripts/setup.sh --insecure        # skip TLS cert verification on downloads (proxy w/o corp CA)
 
 set -euo pipefail
 
@@ -22,13 +23,15 @@ cd "$REPO_ROOT"
 APPLY=0
 SKIP_INSTALL=0
 NO_SYSTEMD=0
+INSECURE=0
 
 for arg in "$@"; do
   case "$arg" in
     --apply)         APPLY=1 ;;
     --skip-install)  SKIP_INSTALL=1 ;;
     --no-systemd)    NO_SYSTEMD=1 ;;
-    -h|--help)       sed -n '2,12p' "$0"; exit 0 ;;
+    --insecure)      INSECURE=1 ;;
+    -h|--help)       sed -n '2,13p' "$0"; exit 0 ;;
     *) echo "unknown flag: $arg" >&2; exit 64 ;;
   esac
 done
@@ -74,6 +77,32 @@ if [[ -z "${SSL_CERT_FILE:-}" ]]; then
     echo "        CERTIFICATE_VERIFY_FAILED, export SSL_CERT_FILE=/path/to/ca-bundle.crt"
     echo "        and re-run, or pre-stage the tarball into ./vendor/ (see QUICKSTART)."
   fi
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TLS reachability probe — if HTTPS to the download host still can't verify
+# (e.g. a TLS-intercepting proxy whose corporate root CA is not installed),
+# fall back to unverified downloads automatically. This only affects the
+# Vector/Prometheus tarball fetch; the SHA256 of the tarball is still checked.
+# Force it with --insecure or DNSTAP_INSECURE_DOWNLOADS=1.
+# ─────────────────────────────────────────────────────────────────────────────
+if [[ $INSECURE -eq 1 ]]; then
+  export DNSTAP_INSECURE_DOWNLOADS=1
+fi
+if [[ "${DNSTAP_INSECURE_DOWNLOADS:-}" != "1" ]] && [[ $SKIP_INSTALL -eq 0 ]]; then
+  if ! $PY - <<'PYEOF' 2>/dev/null
+import urllib.request
+urllib.request.urlopen("https://github.com", timeout=15).read(1)
+PYEOF
+  then
+    echo "  ! TLS: HTTPS verification to github.com failed even with the system CA bundle."
+    echo "        Falling back to UNVERIFIED downloads (no corporate root CA available)."
+    echo "        The downloaded tarball is still integrity-checked via its SHA256."
+    export DNSTAP_INSECURE_DOWNLOADS=1
+  fi
+fi
+if [[ "${DNSTAP_INSECURE_DOWNLOADS:-}" == "1" ]]; then
+  echo "  TLS  : insecure download mode ON (certificate verification disabled)"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
