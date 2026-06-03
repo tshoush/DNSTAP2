@@ -164,7 +164,24 @@ cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
     "to": "now"
   },
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "topN",
+        "type": "custom",
+        "label": "Top N",
+        "description": "How many rows the Top clients / domains / recursive tables show.",
+        "query": "5,10,20,50",
+        "current": {"text": "10", "value": "10"},
+        "options": [
+          {"text": "5", "value": "5"},
+          {"text": "10", "value": "10", "selected": true},
+          {"text": "20", "value": "20"},
+          {"text": "50", "value": "50"}
+        ],
+        "includeAll": false,
+        "multi": false
+      }
+    ]
   },
   "panels": [
     {
@@ -477,7 +494,7 @@ cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
     {
       "id": 8,
       "type": "table",
-      "title": "Top domains",
+      "title": "Top $topN domains",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -494,13 +511,71 @@ cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
       "targets": [
         {
           "refId": "A",
-          "expr": "topk(10, dnscollector_top_domains)",
+          "expr": "topk($topN, dnscollector_top_domains)",
           "format": "table",
           "instant": true,
           "legendFormat": "{{domain}}"
         }
       ],
-      "description": "Top 10 most-queried domains \u2014 instant snapshot of DNS-collector's dnscollector_top_domains gauge. PromQL: topk(10, dnscollector_top_domains)."
+      "description": "Top $topN most-queried domains \u2014 instant snapshot of DNS-collector's dnscollector_top_domains gauge. PromQL: topk($topN, dnscollector_top_domains). $topN is selectable at the top of the dashboard."
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Top $topN clients (requesters)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 30
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk($topN, dnscollector_top_requesters)",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{ip}}"
+        }
+      ],
+      "description": "Top $topN client IPs by query volume \u2014 instant snapshot of dnscollector_top_requesters. PromQL: topk($topN, dnscollector_top_requesters). Depth is bounded by 'top-n' in the collector's prometheus output (install_dnscollector_receiver.sh, default 50)."
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Top $topN recursive query domains",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 30
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "topk($topN, sum by (dns_qname) (count_over_time({job=\"dnscollector\"} | json | dnstap_operation=`RESOLVER_QUERY` [$__range])))",
+          "queryType": "instant"
+        }
+      ],
+      "description": "Top $topN domains in RECURSIVE (resolver \u2192 upstream) queries, from Loki where dnstap.operation=RESOLVER_QUERY, over the dashboard time range. LogQL: topk($topN, sum by (dns_qname) (count_over_time({job=\"dnscollector\"} | json | dnstap_operation=`RESOLVER_QUERY` [$__range]))). Client-vs-recursive is the dnstap.operation field."
     }
   ]
 }

@@ -25,6 +25,7 @@ set -euo pipefail
 DNSCOL_VERSION="${DNSCOL_VERSION:-2.2.3}"
 LISTEN_PORT="${LISTEN_PORT:-6001}"          # dnstap frame-streams (Vector uses 6000)
 PROM_PORT="${PROM_PORT:-9599}"              # Prometheus metrics (Vector uses 9598)
+TOP_N="${TOP_N:-50}"                        # depth of top-domains/top-requesters gauges (dashboard topk reads up to this)
 LOKI_URL="${LOKI_URL:-http://localhost:3100/loki/api/v1/push}"
 SYSLOG_ADDR="${SYSLOG_ADDR:-127.0.0.1:514}"
 JSONL_PATH="${JSONL_PATH:-/var/log/dnscollector/dnscollector-events.jsonl}"   # OWN dir — never touch Vector's /var/log/dnstap
@@ -97,6 +98,7 @@ pipelines:
       listen-ip: 0.0.0.0
       listen-port: ${PROM_PORT}
       prometheus-prefix: "dnscollector"
+      top-n: ${TOP_N}
       basic-auth-enable: false
   # ---- output: Grafana Loki (job=dnscollector; same Loki as Vector) ----
   - name: lokiout
