@@ -576,6 +576,62 @@ cat > "$PROV/dashboards/json/dnscollector-overview.json" <<'EOF'
         }
       ],
       "description": "Top $topN domains in RECURSIVE (resolver \u2192 upstream) queries, from Loki where dnstap.operation=RESOLVER_QUERY, over the dashboard time range. LogQL: topk($topN, sum by (dns_qname) (count_over_time({job=\"dnscollector\"} | json | dnstap_operation=`RESOLVER_QUERY` [$__range]))). Client-vs-recursive is the dnstap.operation field."
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Top $topN NXDOMAIN domains",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 30
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk($topN, dnscollector_top_nonexistent_domains)",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{domain}}"
+        }
+      ],
+      "description": "Top $topN domains returning NXDOMAIN (name does not exist) \u2014 instant snapshot of dnscollector_top_nonexistent_domains. PromQL: topk($topN, dnscollector_top_nonexistent_domains). Useful for spotting typos, stale configs, or malware domain-generation activity."
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "Top $topN SERVFAIL domains",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 38
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk($topN, dnscollector_top_servfail_domains)",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{domain}}"
+        }
+      ],
+      "description": "Top $topN domains returning SERVFAIL (resolution failed) \u2014 instant snapshot of dnscollector_top_servfail_domains. PromQL: topk($topN, dnscollector_top_servfail_domains). Sustained SERVFAIL on a domain points to upstream/DNSSEC/delegation problems."
     }
   ]
 }
