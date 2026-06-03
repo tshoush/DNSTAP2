@@ -96,12 +96,16 @@ case "$ACTION" in
 
     if [ "$MINUTES" -gt 0 ] 2>/dev/null && [ "$MINUTES" != 0 ]; then
       DUR=$(( MINUTES * 60 ))
-      CMD="\"$PY\" \"$SYNTH\" --rate $RATE --duration $DUR --recursion-ratio $RATIO --target $TARGET"
-      WHAT="for ${MINUTES} min then auto-stop"
+      # Deadline-bounded RESILIENT loop: re-launch short batches until DUR seconds
+      # of wall-clock elapse (bash $SECONDS). If the collector restarts and the
+      # generator dies with a broken pipe, the next batch reconnects — the demo
+      # survives instead of ending. Stops itself at the deadline.
+      CMD="end=$DUR; while [ \$SECONDS -lt \$end ]; do \"$PY\" \"$SYNTH\" --rate $RATE --duration 300 --recursion-ratio $RATIO --target $TARGET || true; sleep 1; done"
+      WHAT="for ${MINUTES} min then auto-stop (auto-recovers if the collector restarts)"
     else
       # continuous: restart a fresh 10-min batch forever until the group is killed
-      CMD="while true; do \"$PY\" \"$SYNTH\" --rate $RATE --duration 600 --recursion-ratio $RATIO --target $TARGET; sleep 1; done"
-      WHAT="continuously until --stop"
+      CMD="while true; do \"$PY\" \"$SYNTH\" --rate $RATE --duration 600 --recursion-ratio $RATIO --target $TARGET || true; sleep 1; done"
+      WHAT="continuously until --stop (auto-recovers if the collector restarts)"
     fi
 
     # setsid → new session/process group so --stop can kill the whole tree
