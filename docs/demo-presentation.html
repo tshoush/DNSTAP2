@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DNSTAP2 — DNS Telemetry Demo</title>
+<style>
+  :root{
+    --bg:#0b1220; --bg2:#0f1830; --panel:#16223f; --panel2:#1c2c52;
+    --ink:#e8eefc; --muted:#9fb0d0; --line:#28395f;
+    --a1:#36d1c4;  /* teal  - receiver/transport */
+    --a2:#f5a623;  /* amber - metrics/store */
+    --a3:#7c9cff;  /* blue  - source */
+    --a4:#ff6b81;  /* red   - alerts */
+    --good:#3ddc84;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1200px 700px at 70% -10%, #16244a 0%, var(--bg) 60%) fixed;
+    color:var(--ink); font:16px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    overflow:hidden;
+  }
+  .deck{position:fixed;inset:0}
+  .slide{
+    position:absolute;inset:0;display:none;flex-direction:column;
+    padding:54px 64px 72px;animation:fade .35s ease;
+  }
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  h1{font-size:46px;margin:0 0 6px;letter-spacing:-.5px}
+  h2{font-size:32px;margin:0 0 18px;letter-spacing:-.3px}
+  h2 .tag{font-size:14px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:2px;display:block;margin-bottom:6px}
+  p{margin:8px 0;color:var(--ink)}
+  .muted{color:var(--muted)}
+  .lead{font-size:20px;color:var(--muted);max-width:920px}
+  .pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.5px}
+  .grid{display:grid;gap:16px}
+  .card{background:linear-gradient(180deg,var(--panel),var(--bg2));border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .card h3{margin:0 0 6px;font-size:18px}
+  .card small{color:var(--muted)}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .port{font-family:ui-monospace,monospace;font-weight:700;color:#04121a;background:var(--a1);padding:2px 8px;border-radius:7px;font-size:13px}
+  .port.amber{background:var(--a2)} .port.blue{background:var(--a3);color:#06112e} .port.red{background:var(--a4);color:#2a0410}
+
+  /* ---- flow diagram ---- */
+  .flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap;margin-top:8px}
+  .node{flex:1 1 0;min-width:150px;background:linear-gradient(180deg,var(--panel),var(--bg2));
+        border:1px solid var(--line);border-radius:14px;padding:16px;position:relative}
+  .node .ic{font-size:26px}
+  .node h3{margin:6px 0 4px;font-size:16px}
+  .node p{margin:0;font-size:12.5px;color:var(--muted);line-height:1.35}
+  .node .who{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--a1)}
+  .arrow{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:78px;color:var(--muted);padding:0 4px}
+  .arrow .lab{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);text-align:center;margin-bottom:3px}
+  .arrow .ln{font-size:26px;line-height:1;color:var(--a1)}
+  .src .who{color:var(--a3)} .src .ic{filter:drop-shadow(0 0 8px rgba(124,156,255,.4))}
+  .store .who{color:var(--a2)}
+  .viz .who{color:var(--good)}
+  .fanout{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}
+  .fanout .node{min-width:0}
+
+  table{border-collapse:collapse;width:100%;font-size:14px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:1px}
+  td .who{font-weight:700}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .three{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  ul.clean{margin:6px 0;padding-left:20px} ul.clean li{margin:6px 0}
+  .kbd{font-family:ui-monospace,monospace;background:#0a1326;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:1px 7px;font-size:12px}
+
+  /* chrome */
+  .top{position:fixed;top:0;left:0;right:0;height:5px;background:#0a1326;z-index:5}
+  .top > i{display:block;height:100%;background:linear-gradient(90deg,var(--a3),var(--a1),var(--a2));transition:width .3s}
+  .foot{position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;
+        padding:12px 22px;color:var(--muted);font-size:13px;z-index:5}
+  .foot .brand{font-weight:800;letter-spacing:.5px;color:var(--ink)}
+  .foot .brand b{color:var(--a1)}
+  .nav{display:flex;gap:8px;align-items:center}
+  .nav button{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:9px;
+        padding:6px 12px;cursor:pointer;font-size:14px}
+  .nav button:hover{background:var(--panel2)}
+  .dots{display:flex;gap:6px;margin:0 8px}
+  .dots i{width:8px;height:8px;border-radius:50%;background:var(--line);cursor:pointer}
+  .dots i.on{background:var(--a1);transform:scale(1.25)}
+  .hint{position:fixed;bottom:54px;right:22px;color:var(--muted);font-size:12px;z-index:5;opacity:.8}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;font-size:12.5px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .big{font-size:60px;font-weight:800;line-height:1;background:linear-gradient(90deg,var(--a3),var(--a1));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .note{border-left:3px solid var(--a2);background:#1a1c34;padding:10px 14px;border-radius:0 10px 10px 0;color:var(--muted);font-size:13.5px;margin-top:12px}
+  .center{align-items:center;justify-content:center;text-align:center}
+</style>
+</head>
+<body>
+<div class="top"><i id="bar"></i></div>
+<div class="deck" id="deck">
+
+  <!-- 1 — TITLE -->
+  <section class="slide active center">
+    <div class="pill" style="background:var(--a1);color:#04121a">LIVE DEMO</div>
+    <h1 style="font-size:60px;margin-top:14px">DNSTAP2</h1>
+    <p class="lead" style="font-size:24px;color:var(--ink)">Always-on DNS query telemetry from InfoBlox NIOS<br>to a real-time Grafana dashboard — <b>out of band, native binaries, no Docker.</b></p>
+    <div class="legend" style="justify-content:center;margin-top:26px">
+      <span><i class="sw" style="background:var(--a3)"></i>DNS Server (source)</span>
+      <span><i class="sw" style="background:var(--a1)"></i>Transport &amp; Receiver</span>
+      <span><i class="sw" style="background:var(--a2)"></i>Store &amp; Metrics</span>
+      <span><i class="sw" style="background:var(--good)"></i>Dashboard</span>
+    </div>
+  </section>
+
+  <!-- 2 — WHY -->
+  <section class="slide">
+    <h2><span class="tag">The problem we're solving</span>Why dnstap, and why out-of-band?</h2>
+    <div class="two">
+      <div class="card">
+        <h3 style="color:var(--a4)">❌ Traditional query logging</h3>
+        <ul class="clean muted">
+          <li>Runs <b>inside</b> the DNS service path — every query pays the cost.</li>
+          <li>Heavy enough that it's turned <b>on only to chase a problem</b>, then off again.</li>
+          <li>So the data you need is usually <b>not being collected</b> when the incident happens.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3 style="color:var(--good)">✅ dnstap telemetry (DNSTAP2)</h3>
+        <ul class="clean muted">
+          <li><b>Out-of-band:</b> the server copies query/response events to a side channel.</li>
+          <li>Negligible impact → safe to leave <b>always on</b>.</li>
+          <li>Feeds <b>Splunk/SIEM</b> (forensics) <i>and</i> <b>Prometheus/Grafana</b> (ops) at once.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="note">Goal: replace reactive, performance-degrading logging with continuous, low-impact visibility into <b>who is asking for what</b>.</div>
+  </section>
+
+  <!-- 3 — DATA FLOW (centerpiece) -->
+  <section class="slide">
+    <h2><span class="tag">The whole pipeline at a glance</span>End-to-end data flow</h2>
+    <div class="flow">
+      <div class="node src">
+        <div class="ic">🗄️</div><div class="who">Source</div>
+        <h3>InfoBlox NIOS</h3>
+        <p>DNS server emits a dnstap event per query &amp; response.</p>
+      </div>
+      <div class="arrow">
+        <div class="lab">dnstap / fstrm</div><div class="ln">→</div>
+        <span class="port">TCP 6001</span>
+      </div>
+      <div class="node">
+        <div class="ic">📡</div><div class="who" style="color:var(--a1)">Receiver</div>
+        <h3>DNS-collector</h3>
+        <p>Decodes Frame Streams + protobuf, normalizes, fans out.</p>
+      </div>
+      <div class="arrow">
+        <div class="lab">fan-out</div><div class="ln">⇉</div>
+      </div>
+      <div class="node store">
+        <div class="ic">📊</div><div class="who">Store</div>
+        <h3>Prometheus + Loki</h3>
+        <p>Metrics &amp; searchable log events.</p>
+      </div>
+      <div class="arrow">
+        <div class="lab">query</div><div class="ln">→</div>
+      </div>
+      <div class="node viz">
+        <div class="ic">📈</div><div class="who">Dashboard</div>
+        <h3>Grafana</h3>
+        <p>Live panels: top clients, domains, recursive, NXDOMAIN…</p>
+      </div>
+    </div>
+
+    <div class="fanout">
+      <div class="node"><div class="who" style="color:var(--a2)">metrics</div><h3>Prometheus <span class="port amber">:9090</span></h3><p>Scrapes <code>dnscollector_*</code> on <span class="port amber">:9599</span> every 15s.</p></div>
+      <div class="node"><div class="who" style="color:var(--a2)">logs</div><h3>Loki <span class="port amber">:3100</span></h3><p>Full decoded events, label <code>job=dnscollector</code>.</p></div>
+      <div class="node"><div class="who" style="color:var(--muted)">archive / SIEM</div><h3>JSONL + syslog</h3><p><code>events.jsonl</code> on disk; optional syslog → Splunk.</p></div>
+    </div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--a3)"></i>source</span>
+      <span><i class="sw" style="background:var(--a1)"></i>transport / receiver</span>
+      <span><i class="sw" style="background:var(--a2)"></i>store &amp; metrics</span>
+      <span><i class="sw" style="background:var(--good)"></i>visualization</span>
+    </div>
+  </section>
+
+  <!-- 4 — ROLES TABLE -->
+  <section class="slide">
+    <h2><span class="tag">Who does what</span>Component roles &amp; responsibilities</h2>
+    <table>
+      <tr><th>Stage</th><th>Component</th><th>Role</th><th>Port</th></tr>
+      <tr><td><span class="who" style="color:var(--a3)">Source</span></td><td>InfoBlox NIOS DNS</td><td>Emits a dnstap message for every client query/response and recursive lookup.</td><td>—</td></tr>
+      <tr><td><span class="who" style="color:var(--a1)">Transport</span></td><td>Frame Streams (fstrm)</td><td>Binary, length-framed stream of protobuf payloads over TCP — the wire format.</td><td><span class="port">6001</span></td></tr>
+      <tr><td><span class="who" style="color:var(--a1)">Receiver</span></td><td>DNS-collector</td><td>Terminates the stream, decodes protobuf, normalizes names, routes to outputs.</td><td><span class="port">6001</span></td></tr>
+      <tr><td><span class="who" style="color:var(--a2)">Metrics</span></td><td>Prometheus</td><td>Scrapes the collector's exporter; stores time-series; powers alerting.</td><td><span class="port amber">9090</span> ← <span class="port amber">9599</span></td></tr>
+      <tr><td><span class="who" style="color:var(--a2)">Log store</span></td><td>Loki</td><td>Stores full decoded events; enables per-field search (qname, client, op).</td><td><span class="port amber">3100</span></td></tr>
+      <tr><td><span class="who" style="color:var(--a4)">Alerting</span></td><td>Alertmanager</td><td>Receiver-down, silent-stream, NXDOMAIN spikes, tunneling heuristics.</td><td><span class="port red">9093</span></td></tr>
+      <tr><td><span class="who" style="color:var(--good)">Dashboard</span></td><td>Grafana</td><td>Reads Prometheus + Loki; renders the live operational picture.</td><td><span class="port blue">3000</span></td></tr>
+    </table>
+    <div class="note">Every box is a <b>native binary + systemd service</b> with its own user — no Docker, no JVM. Runs on RHEL 7 (glibc 2.17) through modern Linux.</div>
+  </section>
+
+  <!-- 5 — THE WIRE -->
+  <section class="slide">
+    <h2><span class="tag">DNS server → collector</span>The wire: protocol, port &amp; interface</h2>
+    <div class="two">
+      <div class="card">
+        <h3>📦 What's on the wire</h3>
+        <ul class="clean muted">
+          <li><b>Transport:</b> Frame Streams (<code>fstrm</code>) over <b>TCP</b>.</li>
+          <li><b>Payload:</b> Protocol-Buffers (<code>dnstap.pb</code>) — query, response, client IP, qname, qtype, rcode, timing, <b>operation</b> (client vs recursive).</li>
+          <li><b>Direction:</b> NIOS <b>dials into</b> the collector — unidirectional, one stateful firewall rule.</li>
+        </ul>
+        <p class="mono" style="margin-top:10px"><span class="pill" style="background:var(--a1);color:#04121a">RULE</span> &nbsp;DNS&nbsp;Server → Collector : <b>TCP 6001</b></p>
+      </div>
+      <div class="card">
+        <h3>🔌 Which interface?</h3>
+        <ul class="clean muted">
+          <li>By default NIOS sends all services (incl. DNS) out the <b>LAN1</b> port.</li>
+          <li>The dedicated <b>MGMT</b> port is <b>off by default</b>; enable it to isolate DNS/telemetry from the data plane.</li>
+          <li><b>Best practice:</b> keep always-on telemetry off the production path — MGMT or a dedicated LAN2 if available.</li>
+        </ul>
+        <div class="note" style="margin-top:10px">No fixed "dnstap port" exists — <b>6001</b> is our collector's listener (Vector A/B runs on 6000).</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 — RECEIVER -->
+  <section class="slide">
+    <h2><span class="tag">The heart of the pipeline</span>DNS-collector — the receiver</h2>
+    <div class="three">
+      <div class="card"><h3>1 · Ingest</h3><small>Listens on <span class="port">:6001</span>, completes the Frame Streams handshake, reassembles frames.</small></div>
+      <div class="card"><h3>2 · Decode</h3><small>Parses the protobuf into structured fields; lowercases qnames; tags client vs recursive (<code>RESOLVER_*</code>).</small></div>
+      <div class="card"><h3>3 · Route</h3><small>One ingest, many outputs — a pipeline that forwards each event to all sinks.</small></div>
+    </div>
+    <h3 style="margin:22px 0 6px">Outputs it drives</h3>
+    <div class="fanout">
+      <div class="node"><h3>Prometheus exporter</h3><p><code>dnscollector_*</code> counters &amp; top-N gauges on <span class="port amber">:9599</span>.</p></div>
+      <div class="node"><h3>Loki client</h3><p>Pushes JSON events to <span class="port amber">:3100</span> for search.</p></div>
+      <div class="node"><h3>File + syslog</h3><p>Rotating <code>events.jsonl</code> archive; optional SIEM forward.</p></div>
+    </div>
+    <div class="note">Runs side-by-side with a Vector receiver (<span class="port">:6000</span>/<span class="port amber">:9598</span>) on distinct ports/users — instant A/B or fallback.</div>
+  </section>
+
+  <!-- 7 — STORE -->
+  <section class="slide">
+    <h2><span class="tag">Two stores, two questions</span>Metrics vs. events</h2>
+    <div class="two">
+      <div class="card">
+        <h3 style="color:var(--a2)">📊 Prometheus — "how much / how fast?"</h3>
+        <ul class="clean muted">
+          <li>Numeric time-series: QPS, rcodes, query types, per-operation rates.</li>
+          <li>Built-in <b>top-N gauges</b>: top domains, requesters, NXDOMAIN, SERVFAIL.</li>
+          <li>Cheap, long-retention, drives <b>alerts</b>.</li>
+        </ul>
+        <p class="mono muted" style="font-size:12.5px">sum(rate(dnscollector_queries_total[1m]))</p>
+      </div>
+      <div class="card">
+        <h3 style="color:var(--a2)">🔎 Loki — "which exact events?"</h3>
+        <ul class="clean muted">
+          <li>Full decoded records, searchable by any field.</li>
+          <li>Answers <b>relational</b> questions Prometheus can't: <i>which domains did recursion resolve?</i></li>
+          <li>Per-client, per-qname drill-down for investigation.</li>
+        </ul>
+        <p class="mono muted" style="font-size:12px">{job="dnscollector"} | json | dnstap_operation=`RESOLVER_QUERY`</p>
+      </div>
+    </div>
+    <div class="note">Grafana joins both: counters for the trend, logs for the detail behind any spike.</div>
+  </section>
+
+  <!-- 8 — DASHBOARD -->
+  <section class="slide">
+    <h2><span class="tag">The payoff</span>Grafana — the operational picture</h2>
+    <p class="muted" style="margin-top:-6px">14 panels on the <b>DNS-collector Overview</b> dashboard, with a configurable <span class="kbd">Top&nbsp;N</span> selector (5/10/20/50).</p>
+    <div class="three" style="margin-top:8px">
+      <div class="card"><h3>Health row</h3><small>QPS, replies/s, NXDOMAIN/s, throughput, events received.</small></div>
+      <div class="card"><h3>Breakdowns</h3><small>QPS by query type; responses by rcode; client vs recursive operations over time.</small></div>
+      <div class="card"><h3>A/B</h3><small>DNS-collector vs Vector side-by-side — whichever a member feeds.</small></div>
+      <div class="card"><h3 style="color:var(--a1)">Top clients</h3><small>Busiest requester IPs — <code>dnscollector_top_requesters</code>.</small></div>
+      <div class="card"><h3 style="color:var(--a1)">Top domains</h3><small>Most-queried names — <code>dnscollector_top_domains</code>.</small></div>
+      <div class="card"><h3 style="color:var(--a1)">Top recursive domains</h3><small>Names resolved via recursion — from Loki.</small></div>
+      <div class="card"><h3 style="color:var(--a4)">Top NXDOMAIN</h3><small>Most-failing names — typos, stale config, malware DGA.</small></div>
+      <div class="card"><h3 style="color:var(--a4)">Top SERVFAIL</h3><small>Resolution failures — upstream / DNSSEC / delegation issues.</small></div>
+      <div class="card"><h3>Time range</h3><small>Last 15 min, auto-refresh — a live, moving picture.</small></div>
+    </div>
+  </section>
+
+  <!-- 9 — DEMO -->
+  <section class="slide">
+    <h2><span class="tag">What you're watching live</span>The demo: synthetic traffic</h2>
+    <div class="two">
+      <div class="card">
+        <h3>🧪 No NIOS needed to prove the pipeline</h3>
+        <ul class="clean muted">
+          <li><code>dnstap_synth.py</code> builds real DNS packets, wraps them in dnstap, frames them over Frame Streams to <span class="port">:6001</span>.</li>
+          <li>Weighted top domains &amp; clients, realistic NXDOMAIN/SERVFAIL mix, ~60% recursive.</li>
+          <li>Exercises the <b>entire chain</b> — collector → metrics → Loki → Grafana.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>▶️ One command</h3>
+        <p class="mono" style="font-size:13px">./scripts/run_demo.sh --minutes 120</p>
+        <p class="muted" style="font-size:13px">Detached, survives disconnects, <b>auto-recovers</b> if the collector restarts, auto-stops at the deadline.</p>
+        <p class="mono muted" style="font-size:12.5px">--status &nbsp;·&nbsp; --stop &nbsp;·&nbsp; --rate N</p>
+      </div>
+    </div>
+    <div class="note">In production the <b>only</b> change is the source: point a real NIOS member's dnstap receiver at the collector — the same panels light up with real client IPs and the member's hostname as identity.</div>
+  </section>
+
+  <!-- 10 — DEPLOY -->
+  <section class="slide">
+    <h2><span class="tag">How it ships</span>Deployment model</h2>
+    <div class="three">
+      <div class="card"><h3>🧱 Native binaries</h3><small>Each component a static/musl binary + systemd unit + dedicated user. No Docker, no JVM.</small></div>
+      <div class="card"><h3>🖥️ RHEL 7 → modern</h3><small>glibc-aware installers pick musl builds &amp; trim systemd directives the host can't parse.</small></div>
+      <div class="card"><h3>⚙️ One-shot installers</h3><small><code>install_dnscollector_receiver.sh</code> then <code>install_stack.sh</code> (Loki+Prometheus+Grafana+Alertmanager).</small></div>
+    </div>
+    <h3 style="margin:20px 0 6px">Bring the whole stack up</h3>
+    <div class="card mono" style="font-size:13.5px;line-height:1.9">
+      sudo ./scripts/install_dnscollector_receiver.sh <span class="muted"># receiver on :6001</span><br>
+      sudo ./scripts/install_stack.sh <span class="muted"># Loki + Prometheus + Grafana + Alertmanager</span><br>
+      ./scripts/run_demo.sh --minutes 120 <span class="muted"># synthetic traffic for the demo</span>
+    </div>
+  </section>
+
+  <!-- 11 — TAKEAWAYS -->
+  <section class="slide center">
+    <h2 style="text-align:center"><span class="tag">In one breath</span>What DNSTAP2 gives you</h2>
+    <div class="three" style="max-width:1000px;margin-top:6px">
+      <div class="card"><div class="big">0×</div><p class="muted">added load worth turning off — always-on telemetry</p></div>
+      <div class="card"><div class="big">1</div><p class="muted">firewall rule: DNS&nbsp;→&nbsp;collector&nbsp;<b>TCP&nbsp;6001</b></p></div>
+      <div class="card"><div class="big">14</div><p class="muted">live panels: top clients, domains, recursive, NXDOMAIN, SERVFAIL…</p></div>
+    </div>
+    <p class="lead" style="margin-top:26px;text-align:center">From a DNS query on InfoBlox NIOS to a row on a Grafana panel —<br><b>continuous, out-of-band, and native.</b></p>
+    <div class="pill" style="background:var(--good);color:#05210f;margin-top:18px">DEMO IS LIVE → Grafana :3000</div>
+  </section>
+
+</div>
+
+<div class="hint">← / → or Space to navigate · <span class="kbd">F</span> fullscreen</div>
+<div class="foot">
+  <div class="brand">DNS<b>TAP2</b> · DNS telemetry demo</div>
+  <div class="nav">
+    <button onclick="go(-1)">‹ Prev</button>
+    <div class="dots" id="dots"></div>
+    <button onclick="go(1)">Next ›</button>
+    <span id="count" class="muted" style="margin-left:8px"></span>
+  </div>
+</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  const dots=document.getElementById('dots');
+  let i=0;
+  slides.forEach((_,n)=>{const d=document.createElement('i');d.onclick=()=>set(n);dots.appendChild(d);});
+  function set(n){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,k)=>s.classList.toggle('active',k===i));
+    [...dots.children].forEach((d,k)=>d.classList.toggle('on',k===i));
+    document.getElementById('bar').style.width=((i+1)/slides.length*100)+'%';
+    document.getElementById('count').textContent=(i+1)+' / '+slides.length;
+  }
+  function go(d){set(i+d);}
+  addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){go(1);e.preventDefault();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){go(-1);e.preventDefault();}
+    else if(e.key==='Home'){set(0);} else if(e.key==='End'){set(slides.length-1);}
+    else if(e.key.toLowerCase()==='f'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}
+  });
+  set(0);
+</script>
+</body>
+</html>
