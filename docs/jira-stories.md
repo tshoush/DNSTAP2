@@ -138,7 +138,7 @@ logging guardrails are codified. **SP 3 · High**
 | D — Scale, Resilience & Storage | D1–D5 | 16 |
 | E — Cost & Implementation | E1–E3 | 11 |
 | F — Decision | F1–F2 | 6 |
-| **Total** | **18 stories** | **62** |
+| **Total** | **19 stories** | **62** |
 
 **Suggested order:** A → B (baseline first, it gates everything) → C/D in parallel → E
 (needs D3 volumes) → F (needs all evidence).
