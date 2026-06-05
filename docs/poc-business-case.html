@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DNS Query Logging vs. dnstap — POC Business Case</title>
+<style>
+  :root{
+    --bg:#0b1220; --bg2:#0f1830; --panel:#16223f; --panel2:#1c2c52;
+    --ink:#e8eefc; --muted:#9fb0d0; --line:#28395f;
+    --a1:#36d1c4; --a2:#f5a623; --a3:#7c9cff; --a4:#ff6b81; --good:#3ddc84;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:radial-gradient(1200px 700px at 70% -10%, #16244a 0%, var(--bg) 60%) fixed;
+    color:var(--ink); font:16px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; overflow:hidden}
+  .deck{position:fixed;inset:0}
+  .slide{position:absolute;inset:0;display:none;flex-direction:column;padding:50px 60px 70px;animation:fade .35s ease}
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  h1{font-size:46px;margin:0 0 6px;letter-spacing:-.5px}
+  h2{font-size:30px;margin:0 0 16px;letter-spacing:-.3px}
+  h2 .tag{font-size:13px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:2px;display:block;margin-bottom:6px}
+  p{margin:8px 0}.muted{color:var(--muted)}
+  .lead{font-size:21px;color:var(--muted);max-width:980px}
+  .pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.5px}
+  code{font-family:ui-monospace,Menlo,Consolas,monospace}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .three{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .four{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .card{background:linear-gradient(180deg,var(--panel),var(--bg2));border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .card h3{margin:0 0 6px;font-size:17px}.card small{color:var(--muted);font-size:12.5px}
+  ul.clean{margin:6px 0;padding-left:20px}ul.clean li{margin:5px 0;color:var(--ink);font-size:14.5px}
+  table{border-collapse:collapse;width:100%;font-size:14px}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:1px}
+  .win{color:var(--good);font-weight:700}.lose{color:var(--a4);font-weight:700}
+  .note{border-left:3px solid var(--a2);background:#1a1c34;padding:10px 14px;border-radius:0 10px 10px 0;color:var(--muted);font-size:13.5px;margin-top:12px}
+  .big{font-size:54px;font-weight:800;line-height:1;background:linear-gradient(90deg,var(--a3),var(--a1));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .center{align-items:center;justify-content:center;text-align:center}
+  .grid-tests{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:6px}
+  .t{background:linear-gradient(180deg,var(--panel),var(--bg2));border:1px solid var(--line);border-radius:11px;padding:11px 12px}
+  .t b{color:var(--a1);font-size:12px}.t p{margin:3px 0 0;font-size:12px;color:var(--muted);line-height:1.35}
+  .crit{display:flex;align-items:center;gap:12px;margin:7px 0}
+  .bar{height:14px;border-radius:7px;background:linear-gradient(90deg,var(--a3),var(--a1))}
+  .crit .lbl{width:230px;font-size:13.5px}.crit .w{width:46px;color:var(--muted);font-size:12.5px;text-align:right}
+  .scen{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+  .scen .s{flex:1;min-width:150px;background:#10182e;border:1px solid var(--line);border-radius:11px;padding:12px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-size:12.5px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:7px}.sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .chk{color:var(--good)}.x{color:var(--a4)}.tilde{color:var(--a2)}
+  .top{position:fixed;top:0;left:0;right:0;height:5px;background:#0a1326;z-index:5}
+  .top>i{display:block;height:100%;background:linear-gradient(90deg,var(--a3),var(--a1),var(--a2));transition:width .3s}
+  .foot{position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:12px 22px;color:var(--muted);font-size:13px;z-index:5}
+  .foot .brand{font-weight:800;color:var(--ink)}.foot .brand b{color:var(--a1)}
+  .nav{display:flex;gap:8px;align-items:center}
+  .nav button{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:6px 12px;cursor:pointer;font-size:14px}
+  .nav button:hover{background:var(--panel2)}
+  .dots{display:flex;gap:6px;margin:0 8px}.dots i{width:8px;height:8px;border-radius:50%;background:var(--line);cursor:pointer}.dots i.on{background:var(--a1);transform:scale(1.25)}
+  .hint{position:fixed;bottom:54px;right:22px;color:var(--muted);font-size:12px;z-index:5;opacity:.8}
+  .kbd{font-family:ui-monospace,monospace;background:#0a1326;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:1px 7px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="top"><i id="bar"></i></div>
+<div class="deck" id="deck">
+
+  <!-- 1 TITLE -->
+  <section class="slide center">
+    <div class="pill" style="background:var(--a2);color:#2a1500">POC BUSINESS CASE &amp; PROOF</div>
+    <h1 style="font-size:52px;margin-top:14px">DNS Query Logging <span class="muted">vs.</span> dnstap</h1>
+    <p class="lead" style="font-size:23px;color:var(--ink)">Should we keep native NIOS query logging, or adopt <b>dnstap</b> for always-on DNS telemetry?<br>An <b>evidence-based</b> decision — and a working proof it's feasible today.</p>
+    <div class="legend" style="justify-content:center;margin-top:24px">
+      <span><i class="sw" style="background:var(--a4)"></i>the problem</span>
+      <span><i class="sw" style="background:var(--a1)"></i>the approach</span>
+      <span><i class="sw" style="background:var(--a2)"></i>the cost</span>
+      <span><i class="sw" style="background:var(--good)"></i>the proof</span>
+    </div>
+  </section>
+
+  <!-- 2 PROBLEM -->
+  <section class="slide">
+    <h2><span class="tag">Why we're even asking</span>The problem with native query logging</h2>
+    <div class="three">
+      <div class="card"><h3 style="color:var(--a4)">It taxes the DNS engine</h3><small>Logging runs <b>inside</b> the resolution path — heavy CPU &amp; I/O. Infoblox's own guidance: it "adversely affects DNS services and performance," and don't enable queries + responses together.</small></div>
+      <div class="card"><h3 style="color:var(--a4)">So it gets turned off</h3><small>Because it's expensive, teams enable it only to chase a problem, then disable it again.</small></div>
+      <div class="card"><h3 style="color:var(--a4)">Data is missing when it matters</h3><small>The query history you need for an incident or threat hunt usually <b>isn't being collected</b> at the moment it happens.</small></div>
+    </div>
+    <div class="note">The mandate is to gain <b>continuous DNS visibility</b> <i>without</i> putting DNS availability at risk. That tension is what this POC resolves — with measurements, not opinions.</div>
+  </section>
+
+  <!-- 3 DECISION -->
+  <section class="slide">
+    <h2><span class="tag">The decision</span>One question, decided by data</h2>
+    <div class="two">
+      <div class="card"><h3>Option A — Keep native query logging</h3>
+        <ul class="clean muted">
+          <li>No new pipeline to run.</li>
+          <li>But pays a performance tax and is realistically <b>on-demand only</b>.</li>
+          <li>Query &amp; response not bundled — weaker for forensics.</li>
+        </ul></div>
+      <div class="card"><h3>Option B — Adopt dnstap (DNSTAP2)</h3>
+        <ul class="clean muted">
+          <li><b>Out-of-band, asynchronous</b> — safe to leave always-on.</li>
+          <li>Full query+response fidelity for SIEM / forensics.</li>
+          <li>Cost: a telemetry pipeline + storage to operate.</li>
+        </ul></div>
+    </div>
+    <div class="note">We will <b>measure both</b> on our own environment and score them against weighted criteria. Primary tie-breaker: whichever better <b>protects DNS availability.</b></div>
+  </section>
+
+  <!-- 4 AT A GLANCE -->
+  <section class="slide">
+    <h2><span class="tag">Side by side</span>The two options at a glance</h2>
+    <table>
+      <tr><th>Dimension</th><th>Native query logging</th><th>dnstap (DNSTAP2)</th></tr>
+      <tr><td>DNS performance impact</td><td class="x">In-path; heavy CPU/IO ✗</td><td class="chk">Out-of-band, async ✓</td></tr>
+      <tr><td>Safe to run always-on</td><td class="tilde">Risky at scale ~</td><td class="chk">Designed for it ✓</td></tr>
+      <tr><td>Query+response correlation</td><td class="x">Not bundled ✗</td><td class="chk">Full fidelity ✓</td></tr>
+      <tr><td>Recursion visibility</td><td class="tilde">Limited ~</td><td class="chk">Client &amp; resolver ✓</td></tr>
+      <tr><td>SIEM / forensics fit</td><td class="tilde">Workable ~</td><td class="chk">Strong ✓</td></tr>
+      <tr><td>Storage footprint</td><td class="chk">Smaller ✓</td><td class="x">Larger ✗</td></tr>
+      <tr><td>New infra to operate</td><td class="chk">None ✓</td><td class="tilde">Collector + stores ~</td></tr>
+      <tr><td>Hidden cost</td><td class="x">DDI capacity erosion</td><td class="x">SIEM ingest volume</td></tr>
+    </table>
+    <div class="note">No option is free — native logging's cost is <b>hidden in DDI headroom</b>; dnstap's is <b>visible in storage/SIEM</b>. The POC quantifies both.</div>
+  </section>
+
+  <!-- 5 EVIDENCE -->
+  <section class="slide">
+    <h2><span class="tag">What the evidence already says</span>Vendor &amp; community signal</h2>
+    <div class="two">
+      <div class="card"><h3 style="color:var(--a2)">Infoblox's own guidance</h3>
+        <ul class="clean muted">
+          <li>Query/response logging "adversely affects DNS services and performance."</li>
+          <li>"Heavy compute demands on the CPU and storage" — can "degrade DNS core… availability."</li>
+          <li>Recommends <b>not</b> running both; offers <b>dnstap</b> (and Data Connector VM) as the low-impact path.</li>
+        </ul></div>
+      <div class="card"><h3 style="color:var(--good)">dnstap design &amp; data quality</h3>
+        <ul class="clean muted">
+          <li>"Fast and lightweight," operates <b>asynchronously</b>, "minimal performance loss."</li>
+          <li>Preserves the <b>complete</b> query+response in binary form — full forensic fidelity.</li>
+          <li>Trade-off acknowledged: a <b>larger storage footprint</b> to plan for.</li>
+        </ul></div>
+    </div>
+    <div class="note">Strong directional evidence — but we still <b>measure on our hardware and query mix</b> before committing. That's what the test plan is for.</div>
+  </section>
+
+  <!-- 6 SCORECARD -->
+  <section class="slide">
+    <h2><span class="tag">How we decide — objectively</span>Weighted scorecard</h2>
+    <div class="crit"><div class="lbl">DNS performance impact</div><div class="bar" style="width:300px"></div><div class="w">25%</div></div>
+    <div class="crit"><div class="lbl">Data completeness &amp; fidelity</div><div class="bar" style="width:240px"></div><div class="w">20%</div></div>
+    <div class="crit"><div class="lbl">Resilience / always-on safety</div><div class="bar" style="width:180px"></div><div class="w">15%</div></div>
+    <div class="crit"><div class="lbl">Scale (grid-wide, sustained)</div><div class="bar" style="width:120px"></div><div class="w">10%</div></div>
+    <div class="crit"><div class="lbl">Storage &amp; retention cost</div><div class="bar" style="width:120px"></div><div class="w">10%</div></div>
+    <div class="crit"><div class="lbl">Security / forensics value</div><div class="bar" style="width:120px"></div><div class="w">10%</div></div>
+    <div class="crit"><div class="lbl">Operational cost &amp; complexity</div><div class="bar" style="width:120px"></div><div class="w">10%</div></div>
+    <div class="note">Each option scored 1–5 per criterion from <b>measured evidence</b>; weighted total drives the recommendation. Availability-weighted (C1+C3 = 40%) by design.</div>
+  </section>
+
+  <!-- 7 TESTS -->
+  <section class="slide">
+    <h2><span class="tag">The technical proof</span>11 tests, one controlled lab</h2>
+    <div class="grid-tests">
+      <div class="t"><b>T1 Baseline</b><p>Max QPS &amp; latency, no logging — the reference</p></div>
+      <div class="t"><b>T2 Native logging</b><p>QPS/latency/CPU drop with NIOS logging on</p></div>
+      <div class="t"><b>T3 dnstap</b><p>Same profiles with dnstap → collector</p></div>
+      <div class="t"><b>T4 Head-to-head</b><p>Penalty of each vs baseline at peak</p></div>
+      <div class="t"><b>T5 Data fidelity</b><p>Query+response correlation, recursion, fields</p></div>
+      <div class="t"><b>T6 Soak</b><p>2–4 h sustained — drift, leaks, stability</p></div>
+      <div class="t"><b>T7 Failure / backpressure</b><p>Sink dies under load — does DNS stay healthy?</p></div>
+      <div class="t"><b>T8 Storage</b><p>GB/day &amp; retention sizing, both options</p></div>
+      <div class="t"><b>T9 Pipeline throughput</b><p>Collector ceiling, ingest headroom</p></div>
+      <div class="t"><b>T10 Forensics</b><p>Tunneling, DGA/NXDOMAIN, per-client history</p></div>
+      <div class="t"><b>T11 Interface/net</b><p>LAN1 vs MGMT, single firewall rule</p></div>
+      <div class="t" style="background:#10241f;border-color:var(--good)"><b style="color:var(--good)">Tools</b><p>dnsperf / dnstrace · node_exporter · the live Grafana board</p></div>
+    </div>
+    <div class="note">Same hardware, dataset, and query mix across every run — <b>only the logging mode varies</b>, so the deltas are real.</div>
+  </section>
+
+  <!-- 8 COST -->
+  <section class="slide">
+    <h2><span class="tag">The money question</span>Cost — both options have a hidden bill</h2>
+    <div class="two">
+      <div class="card"><h3 style="color:var(--a4)">Native logging's hidden tax</h3>
+        <ul class="clean muted">
+          <li>Consumes <b>DDI performance headroom</b> → earlier appliance/member upgrades.</li>
+          <li>Reporting/indexing burden (± Data Connector VM licensing).</li>
+          <li>Incident-response cost: data often <b>not on</b> when needed.</li>
+        </ul></div>
+      <div class="card"><h3 style="color:var(--a2)">dnstap's visible bill</h3>
+        <ul class="clean muted">
+          <li>Collector host(s) — small native binaries, optional HA.</li>
+          <li>Storage (Prometheus + Loki) and <b>SIEM ingest volume</b> (size from T8).</li>
+          <li>Day-2 ops effort — but <b>moves load off DNS members</b> (defers upgrades).</li>
+        </ul></div>
+    </div>
+    <div class="note"><b>3-year TCO</b> compares: appliance/headroom impact · licensing · storage ($/GB × retention × GB/day) · SIEM ingest · FTE. The decision often turns on <b>SIEM ingest vs DDI capacity erosion.</b></div>
+  </section>
+
+  <!-- 9 RISKS -->
+  <section class="slide">
+    <h2><span class="tag">Eyes open</span>Risks &amp; how we address them</h2>
+    <div class="three">
+      <div class="card"><h3>Performance regression</h3><small>Native logging degrading resolution at peak → <b>measure</b> (T2/T4), don't assume.</small></div>
+      <div class="card"><h3>Backpressure / data loss</h3><small>Sink loss must <b>never</b> block DNS → prove with T7; characterize buffer/drop.</small></div>
+      <div class="card"><h3>Storage / SIEM overrun</h3><small>Cap with retention; size from T8 before committing ingest spend.</small></div>
+      <div class="card"><h3>Single point of failure</h3><small>Collector → HA or graceful degradation (T9 sizing).</small></div>
+      <div class="card"><h3>Privacy / compliance</h3><small>DNS data is sensitive → retention, access control, encryption — both options.</small></div>
+      <div class="card"><h3>NIOS build variance</h3><small>dnstap field names differ → schema discovery handles it; validate on target build.</small></div>
+    </div>
+  </section>
+
+  <!-- 10 PROOF -->
+  <section class="slide">
+    <h2><span class="tag">Already de-risked</span>The dnstap option is built and running today</h2>
+    <div class="four">
+      <div class="card"><div class="big" style="font-size:34px">14</div><small>live Grafana panels: top clients, domains, recursive, NXDOMAIN, SERVFAIL</small></div>
+      <div class="card"><div class="big" style="font-size:34px">0</div><small>Docker / JVM — native binaries + systemd, runs on RHEL 7</small></div>
+      <div class="card"><div class="big" style="font-size:34px">1</div><small>firewall rule: DNS → collector <code>TCP 6001</code></small></div>
+      <div class="card"><div class="big" style="font-size:34px">✓</div><small>synthetic <b>and</b> real-member path proven end-to-end</small></div>
+    </div>
+    <div class="two" style="margin-top:14px">
+      <div class="card"><h3 class="win">What's working now</h3><small>DNS-collector → Prometheus + Loki → Grafana, with Alertmanager rules (receiver-down, NXDOMAIN/SERVFAIL spikes, tunneling heuristic). One-command installers + a synthetic traffic generator for repeatable demos.</small></div>
+      <div class="card"><h3 class="win">Ops-ready</h3><small>InfoBlox enablement <b>runbook</b> (dry-run → snapshot → apply, per member), firewall/port docs, and an SNMP integration design for host health. Rollout is phased and reversible.</small></div>
+    </div>
+    <div class="note">Feasibility is <b>not</b> a question — the pipeline is live. The POC's job is to quantify the trade vs. native logging and decide.</div>
+  </section>
+
+  <!-- 11 BACKLOG -->
+  <section class="slide">
+    <h2><span class="tag">The plan to execute</span>Backlog &amp; sequence</h2>
+    <div class="three">
+      <div class="card"><h3>6 epics · 19 stories · 62 pts</h3><small>A Environment/Baseline · B Performance · C Data Quality/Forensics · D Scale/Resilience/Storage · E Cost/Implementation · F Decision.</small></div>
+      <div class="card"><h3>Sequenced</h3><small>A → B (baseline gates everything) → C/D in parallel → E (needs storage volumes) → F (needs all evidence).</small></div>
+      <div class="card"><h3>Ready to import</h3><small>Stories with acceptance criteria in <code>jira-stories.md</code>; <code>jira-stories.csv</code> imports straight into Jira.</small></div>
+    </div>
+    <table style="margin-top:12px">
+      <tr><th>Epic</th><th>Focus</th><th>Outcome</th></tr>
+      <tr><td>A</td><td>Lab, load profiles, instrumentation</td><td>Repeatable, trustworthy measurement</td></tr>
+      <tr><td>B</td><td>Baseline vs native vs dnstap</td><td>The performance verdict (scorecard C1)</td></tr>
+      <tr><td>C/D</td><td>Fidelity, forensics, soak, failure, storage, throughput</td><td>Safety, completeness, scale, cost inputs</td></tr>
+      <tr><td>E/F</td><td>3-yr TCO, implementation, scorecard, sign-off</td><td>The recommendation</td></tr>
+    </table>
+  </section>
+
+  <!-- 12 DECISION + ASK -->
+  <section class="slide center">
+    <h2 style="text-align:center"><span class="tag">The recommendation path</span>How the call gets made</h2>
+    <div class="scen" style="max-width:1050px">
+      <div class="s"><b class="win">Choose dnstap if…</b><p class="muted" style="font-size:13px;margin-top:6px">materially lower DNS impact at peak (T4), DNS stays healthy under sink loss (T7), data needs met (T5/T10), and 3-yr TCO incl. SIEM is acceptable.</p></div>
+      <div class="s"><b class="tilde">Keep native if…</b><p class="muted" style="font-size:13px;margin-top:6px">measured peak penalty is negligible <i>and</i> dnstap's storage/SIEM cost is disproportionate — then codify strict on-demand logging guardrails.</p></div>
+    </div>
+    <p class="lead" style="margin-top:22px;text-align:center;max-width:900px">The ask: approve the POC and the resources to run the test plan. The pipeline is already built — we need the measurements to make the call with confidence.</p>
+    <div class="pill" style="background:var(--good);color:#05210f;margin-top:16px">DECIDE ON EVIDENCE · PROTECT DNS AVAILABILITY</div>
+  </section>
+
+  <!-- 13 CLOSE -->
+  <section class="slide center">
+    <h1 style="font-size:40px">From "we think" to "we measured."</h1>
+    <p class="lead" style="text-align:center;max-width:900px">A weighted scorecard, 11 controlled tests, a real 3-year cost model, and a working pipeline — so the choice between native logging and dnstap is backed by evidence, not assumption.</p>
+    <div class="legend" style="justify-content:center;margin-top:18px">
+      <span>📄 poc-evaluation-plan.md</span><span>🗂️ jira-stories.md / .csv</span><span>📘 infoblox-ops-playbook.md</span><span>📈 live Grafana board</span>
+    </div>
+  </section>
+
+</div>
+
+<div class="hint">← / → or Space · <span class="kbd">F</span> fullscreen</div>
+<div class="foot">
+  <div class="brand">DNS<b>TAP2</b> · POC business case</div>
+  <div class="nav">
+    <button onclick="go(-1)">‹ Prev</button>
+    <div class="dots" id="dots"></div>
+    <button onclick="go(1)">Next ›</button>
+    <span id="count" class="muted" style="margin-left:8px"></span>
+  </div>
+</div>
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  const dots=document.getElementById('dots');
+  let i=0;
+  slides.forEach((_,n)=>{const d=document.createElement('i');d.onclick=()=>set(n);dots.appendChild(d);});
+  function set(n){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,k)=>s.classList.toggle('active',k===i));
+    [...dots.children].forEach((d,k)=>d.classList.toggle('on',k===i));
+    document.getElementById('bar').style.width=((i+1)/slides.length*100)+'%';
+    document.getElementById('count').textContent=(i+1)+' / '+slides.length;
+  }
+  function go(d){set(i+d);}
+  addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){go(1);e.preventDefault();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){go(-1);e.preventDefault();}
+    else if(e.key==='Home'){set(0);}else if(e.key==='End'){set(slides.length-1);}
+    else if(e.key.toLowerCase()==='f'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}
+  });
+  set(0);
+</script>
+</body>
+</html>
