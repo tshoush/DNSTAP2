@@ -1,6 +1,6 @@
 # Jira Backlog — DNS Logging vs. dnstap POC
 
-Execution backlog for [poc-evaluation-plan.md](poc-evaluation-plan.md). Six epics, 18
+Execution backlog for [poc-evaluation-plan.md](poc-evaluation-plan.md). Six epics, 19
 stories. Story points are Fibonacci; priority is the business urgency of the result.
 A ready-to-import CSV is in [jira-stories.csv](jira-stories.csv).
 
