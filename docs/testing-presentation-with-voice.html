@@ -90,6 +90,9 @@
   .notes.hidden{transform:translateY(115%)}
   .notes h4{margin:0 0 6px;color:var(--a1);font-size:12px;text-transform:uppercase;letter-spacing:1.5px}
   .notes h4 .idx{float:right;color:var(--muted);font-weight:600;letter-spacing:.5px}
+  .notes .slidedesc{margin:0 0 10px;color:var(--a3);font-size:14px;font-weight:700;letter-spacing:.2px}
+  .notes .slidedesc:before{content:"▸ ";color:var(--a1)}
+  .notes .slidedesc:empty{display:none}
   .notes p{margin:0;color:var(--ink);font-size:15.5px;line-height:1.65;max-width:1150px}
   .notes .speakingdot{display:none;width:9px;height:9px;border-radius:50%;background:var(--good);margin-left:8px;vertical-align:middle;animation:pulse 1s infinite}
   .notes.speaking .speakingdot{display:inline-block}
@@ -338,6 +341,7 @@
 
 <!-- narration drawer -->
 <div class="notes" id="notes">
+  <div class="slidedesc" id="slideDesc"></div>
   <h4>Speaker narration <span class="speakingdot"></span><span class="idx" id="noteIdx"></span></h4>
   <p id="noteText"></p>
 </div>
@@ -345,6 +349,10 @@
 <!-- editor drawer (only visible in edit mode) -->
 <div class="editor" id="editor">
   <h4>Editing slide <span id="edIdx"></span> — narration is what the voice speaks · slide text is editable directly on the slide above</h4>
+  <div style="margin-bottom:12px">
+    <label for="descEdit">Short slide description (shown above the narration)</label>
+    <input id="descEdit" type="text" placeholder="One-line summary of what this slide is about…">
+  </div>
   <div class="row">
     <div class="col">
       <label for="narEdit">Spoken narration (this slide)</label>
@@ -408,6 +416,23 @@
     `To sum up in one breath. One server, same hardware — zero hardware variance. Five runs, M-zero through M-zero-prime, gated by a drift check so the numbers are trustworthy. And sixty-plus fields that dnstap captures versus a single query-only log line. Same box, same queries, one variable — the logging mode. That's evidence we can defend, not a claim we have to trust. Let's run it.`
   ];
 
+  // ---- super-short, one-line description of what each slide is about (shown above narration) ----
+  const DESCRIPTIONS = [
+    `Title — the experiment in one line`,
+    `The decision: legacy query logging vs. dnstap`,
+    `The method: one server, same queries, each mode in turn`,
+    `Why one server — eliminates hardware variance`,
+    `The five-run sequence: M0 → M1 → M2 → M3 → M0'`,
+    `Avoiding the cold-cache trap`,
+    `What we measure: generator, member, collector`,
+    `The four tests: T2, T3, T4, T7`,
+    `The harness: scripts/poc/`,
+    `The guided campaign & progress board`,
+    `What comes out: the comparison tables`,
+    `Go / no-go decision framework`,
+    `Summary — why the test is credible`
+  ];
+
   const slides=[...document.querySelectorAll('.slide')];
   const dots=document.getElementById('dots');
   const notes=document.getElementById('notes');
@@ -425,6 +450,7 @@
   let editMode=false, saveTimer=null;
 
   function narr(n){ const e=EDITS.slides[n]; return (e && e.narration!=null && e.narration!=='') ? e.narration : (NARRATION[n]||''); }
+  function desc(n){ const e=EDITS.slides[n]; return (e && e.desc!=null) ? e.desc : (DESCRIPTIONS[n]||''); }
   function slideEntry(n){ return (EDITS.slides[n]=EDITS.slides[n]||{}); }
 
   function readEmbedded(){ try{ const t=document.getElementById('embeddedEdits').textContent.trim(); return t?JSON.parse(t):null; }catch(_){ return null; } }
@@ -460,6 +486,7 @@
   function syncEditorFields(){
     document.getElementById('edIdx').textContent=(i+1)+' / '+slides.length;
     const e=EDITS.slides[i]||{};
+    document.getElementById('descEdit').value = (e.desc!=null)?e.desc:(DESCRIPTIONS[i]||'');
     document.getElementById('narEdit').value = (e.narration!=null)?e.narration:(NARRATION[i]||'');
     document.getElementById('cmtEdit').value = e.comment||'';
     document.getElementById('revName').value = EDITS.reviewer||'';
@@ -512,6 +539,7 @@
     // capture direct slide-text edits
     slides.forEach((s,idx)=> s.addEventListener('input', ()=>{ if(!editMode) return; slideEntry(idx).html=s.innerHTML; saveSoon(); }));
     // narration / comment / reviewer fields
+    document.getElementById('descEdit').addEventListener('input', function(){ slideEntry(i).desc=this.value; saveSoon(); updateNotes(); });
     document.getElementById('narEdit').addEventListener('input', function(){ slideEntry(i).narration=this.value; saveSoon(); updateNotes(); });
     document.getElementById('cmtEdit').addEventListener('input', function(){ slideEntry(i).comment=this.value; saveSoon(); });
     document.getElementById('revName').addEventListener('input', function(){ EDITS.reviewer=this.value; saveSoon(); });
@@ -602,6 +630,7 @@
   }
 
   function updateNotes(){
+    document.getElementById('slideDesc').textContent = desc(i)||'';
     document.getElementById('noteText').textContent = narr(i)||'';
     document.getElementById('noteIdx').textContent = (i+1)+' / '+slides.length;
   }
