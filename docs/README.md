@@ -24,6 +24,6 @@
 |---|---|
 | [demo-presentation.html](demo-presentation.html) | Self-contained demo deck — data flow & component roles |
 | [demo-presentation-with-voice.html](demo-presentation-with-voice.html) | Narrated version (browser TTS, speed control, auto-present) |
-| [testing-presentation-with-voice.html](testing-presentation-with-voice.html) | **Narrated walkthrough of the evidence test** — single-server method, the M0→M0' run sequence, what's measured, the harness, and the go/no-go (browser TTS, auto-present) |
+| [testing-presentation-with-voice.html](testing-presentation-with-voice.html) | **Narrated walkthrough of the evidence test** — single-server method, the M0→M0' run sequence, what's measured, the harness, and the go/no-go. Browser TTS + auto-present, and an **in-browser review/edit mode** (press `E`): edit narration + slide text, auto-saved locally, then **Export edits** (JSON suggestions) or **Export deck** (standalone HTML with edits baked in) |
 
 > Top-level repo docs: `ARCHITECTURE.md`, `QUICKSTART.md`, `CLAUDE.md`.

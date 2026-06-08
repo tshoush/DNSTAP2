@@ -95,6 +95,36 @@
   .notes.speaking .speakingdot{display:inline-block}
   @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
   .hint{position:fixed;bottom:54px;right:22px;color:var(--muted);font-size:12px;z-index:5;opacity:.8}
+
+  /* ---- review / edit mode ---- */
+  .ed{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .ed button{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:6px 12px;cursor:pointer;font-size:14px}
+  .ed button:hover{background:var(--panel2)}
+  .ed button#editBtn.on{background:var(--a2);color:#23170a;border-color:var(--a2);font-weight:700}
+  body.editmode .slide.active{outline:2px dashed rgba(245,166,35,.5);outline-offset:-10px}
+  body.editmode [contenteditable="true"]:hover{background:rgba(245,166,35,.06)}
+  body.editmode [contenteditable="true"]:focus{outline:2px solid var(--a2);outline-offset:2px;border-radius:4px;background:rgba(245,166,35,.08)}
+  .editbadge{display:none;position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:9;
+    background:var(--a2);color:#23170a;font-weight:800;font-size:12px;letter-spacing:1px;padding:5px 14px;border-radius:999px;box-shadow:0 4px 18px rgba(0,0,0,.4)}
+  body.editmode .editbadge{display:block}
+  /* editor drawer (mirrors the notes drawer, shown only in edit mode) */
+  .editor{position:fixed;left:0;right:0;bottom:50px;max-height:42vh;overflow:auto;z-index:8;display:none;
+    background:rgba(9,14,28,.985);border-top:2px solid var(--a2);padding:14px 22px 18px;box-shadow:0 -16px 40px rgba(0,0,0,.5)}
+  body.editmode .editor{display:block}
+  body.editmode .notes{display:none}
+  .editor h4{margin:0 0 8px;color:var(--a2);font-size:12px;text-transform:uppercase;letter-spacing:1.5px}
+  .editor .row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+  .editor .col{flex:1 1 380px;min-width:280px}
+  .editor label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:0 0 4px}
+  .editor textarea,.editor input{width:100%;background:#0a1326;color:var(--ink);border:1px solid var(--line);border-radius:8px;
+    padding:9px 11px;font:14px/1.55 -apple-system,Segoe UI,Roboto,sans-serif;resize:vertical}
+  .editor textarea#narEdit{min-height:120px}
+  .editor textarea#cmtEdit{min-height:56px}
+  .editor .hintline{color:var(--muted);font-size:12px;margin-top:8px}
+  .editor .hintline b{color:var(--a1)}
+  .toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);z-index:10;background:var(--good);color:#05210f;
+    font-weight:700;font-size:13px;padding:8px 16px;border-radius:10px;opacity:0;transition:opacity .25s;pointer-events:none}
+  .toast.show{opacity:1}
 </style>
 </head>
 <body>
@@ -303,13 +333,38 @@
 
 </div>
 
+<div class="editbadge">● EDIT / REVIEW MODE — changes auto-save in this browser · Export to keep them</div>
+<div class="toast" id="toast"></div>
+
 <!-- narration drawer -->
 <div class="notes" id="notes">
   <h4>Speaker narration <span class="speakingdot"></span><span class="idx" id="noteIdx"></span></h4>
   <p id="noteText"></p>
 </div>
 
-<div class="hint">← / → navigate · <span class="kbd">P</span> play/pause · <span class="kbd">A</span> auto-present · <span class="kbd">[ ]</span> speed · <span class="kbd">N</span> notes · <span class="kbd">F</span> fullscreen</div>
+<!-- editor drawer (only visible in edit mode) -->
+<div class="editor" id="editor">
+  <h4>Editing slide <span id="edIdx"></span> — narration is what the voice speaks · slide text is editable directly on the slide above</h4>
+  <div class="row">
+    <div class="col">
+      <label for="narEdit">Spoken narration (this slide)</label>
+      <textarea id="narEdit" spellcheck="true" placeholder="What the voice reads for this slide…"></textarea>
+      <div class="hintline">Tip: spell acronyms phonetically so they're read as letters — <b>T-C-P</b>, <b>S-I-E-M</b>, <b>Q-P-S</b>, <b>C-P-U</b>.</div>
+    </div>
+    <div class="col">
+      <label for="cmtEdit">Reviewer comment / suggestion (this slide)</label>
+      <textarea id="cmtEdit" spellcheck="true" placeholder="Why this change? Captured in the exported file."></textarea>
+      <label for="revName" style="margin-top:10px">Reviewer name</label>
+      <input id="revName" type="text" placeholder="e.g. Jane (DDI)">
+      <div class="hintline">Slide text: click any text on the slide above and type. <b>Esc</b> exits edit mode.</div>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="importFile" accept="application/json,.json" style="display:none">
+<script id="embeddedEdits" type="application/json"></script>
+
+<div class="hint">← / → navigate · <span class="kbd">P</span> play/pause · <span class="kbd">A</span> auto-present · <span class="kbd">[ ]</span> speed · <span class="kbd">N</span> notes · <span class="kbd">E</span> edit · <span class="kbd">F</span> fullscreen</div>
 <div class="foot">
   <div class="brand">DNS<b>TAP2</b> · evidence test</div>
   <div class="av">
@@ -319,6 +374,13 @@
     <label class="rate" title="Narration speed">⏩ <input type="range" id="rate" min="0.5" max="1.75" step="0.05" value="1"><span id="rateVal">1.0×</span></label>
     <button id="toggleNotes" class="on" title="Show/hide narration (N)">📝 Notes</button>
     <select id="voice" title="Narration voice"></select>
+  </div>
+  <div class="ed">
+    <button id="editBtn" title="Toggle edit / review mode (E)">✏️ Edit</button>
+    <button id="exportJson" title="Download all edits + comments as a JSON file (the suggestions to hand back / commit)">💾 Export edits</button>
+    <button id="exportHtml" title="Download a standalone presentation with all edits baked in (for future presentations)">📦 Export deck</button>
+    <button id="importBtn" title="Load a previously exported edits JSON">📥 Import</button>
+    <button id="resetBtn" title="Discard local edits and restore the original">🧹 Reset</button>
   </div>
   <div class="nav">
     <button onclick="go(-1)">‹ Prev</button>
@@ -352,6 +414,116 @@
   let i=0;
 
   slides.forEach((_,n)=>{const d=document.createElement('i');d.onclick=()=>set(n);dots.appendChild(d);});
+
+  // ===================== review / edit engine =====================
+  // Lets a team edit narration (what the voice speaks) AND slide text in-browser.
+  // Edits auto-save to this browser (localStorage) so nothing is lost; "Export edits"
+  // captures them as a JSON suggestions file, and "Export deck" produces a standalone
+  // HTML with the edits baked in for future presentations.
+  const STORE_KEY='dnstap-evidence-deck:v1';
+  let EDITS={reviewer:'',updated:null,slides:{}};   // slides[idx]={narration,html,comment}
+  let editMode=false, saveTimer=null;
+
+  function narr(n){ const e=EDITS.slides[n]; return (e && e.narration!=null && e.narration!=='') ? e.narration : (NARRATION[n]||''); }
+  function slideEntry(n){ return (EDITS.slides[n]=EDITS.slides[n]||{}); }
+
+  function readEmbedded(){ try{ const t=document.getElementById('embeddedEdits').textContent.trim(); return t?JSON.parse(t):null; }catch(_){ return null; } }
+  function readLocal(){ try{ const t=localStorage.getItem(STORE_KEY); return t?JSON.parse(t):null; }catch(_){ return null; } }
+  function mergeEdits(base,ov){
+    if(!ov) return base;
+    base.reviewer = ov.reviewer || base.reviewer;
+    base.updated  = ov.updated  || base.updated;
+    Object.keys(ov.slides||{}).forEach(k=>{ base.slides[k]=Object.assign({},base.slides[k],ov.slides[k]); });
+    return base;
+  }
+  function applySlideHtml(){
+    Object.keys(EDITS.slides).forEach(k=>{ const e=EDITS.slides[k], idx=+k;
+      if(e && e.html!=null && slides[idx]) slides[idx].innerHTML=e.html; });
+  }
+  function bootEdits(){
+    EDITS={reviewer:'',updated:null,slides:{}};
+    EDITS=mergeEdits(EDITS, readEmbedded());   // baked-in baseline (from a previously exported deck)
+    EDITS=mergeEdits(EDITS, readLocal());      // this browser's working overlay
+    applySlideHtml();
+  }
+  function saveLocal(){ EDITS.updated=new Date().toISOString(); try{ localStorage.setItem(STORE_KEY,JSON.stringify(EDITS)); }catch(_){ } }
+  function saveSoon(){ clearTimeout(saveTimer); saveTimer=setTimeout(saveLocal,250); }
+
+  function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
+  function stamp(){ return new Date().toISOString().replace(/[:.]/g,'-').slice(0,19); }
+  function download(name,text,mime){
+    const b=new Blob([text],{type:mime||'text/plain'}), u=URL.createObjectURL(b);
+    const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(u); a.remove(); },200);
+  }
+
+  function syncEditorFields(){
+    document.getElementById('edIdx').textContent=(i+1)+' / '+slides.length;
+    const e=EDITS.slides[i]||{};
+    document.getElementById('narEdit').value = (e.narration!=null)?e.narration:(NARRATION[i]||'');
+    document.getElementById('cmtEdit').value = e.comment||'';
+    document.getElementById('revName').value = EDITS.reviewer||'';
+  }
+  function setEditMode(on){
+    editMode=on;
+    document.body.classList.toggle('editmode',on);
+    document.getElementById('editBtn').classList.toggle('on',on);
+    document.getElementById('editBtn').textContent = on ? '✓ Done' : '✏️ Edit';
+    slides.forEach(s=> s.setAttribute('contenteditable', on?'true':'false'));
+    if(on){ stopSpeak(); syncEditorFields(); }
+  }
+  function toggleEdit(){ setEditMode(!editMode); }
+
+  function exportJson(){
+    saveLocal();
+    download('dnstap-test-deck-edits-'+stamp()+'.json', JSON.stringify(EDITS,null,2), 'application/json');
+    toast('Edits exported — hand this file back / commit it');
+  }
+  function exportHtml(){
+    saveLocal();
+    const wasEdit=editMode; if(wasEdit) setEditMode(false);
+    const clone=document.documentElement.cloneNode(true);
+    // escape '<' so slide-HTML edits embedded as JSON can never terminate the <script> early
+    const emb=clone.querySelector('#embeddedEdits'); if(emb) emb.textContent=JSON.stringify(EDITS).replace(/</g,'\\u003c');
+    clone.querySelectorAll('[contenteditable]').forEach(el=>el.setAttribute('contenteditable','false'));
+    clone.classList.remove('editmode');
+    const t=clone.querySelector('#toast'); if(t) t.textContent='';
+    download('dnstap-test-deck-'+stamp()+'.html', '<!DOCTYPE html>\n'+clone.outerHTML, 'text/html');
+    if(wasEdit) setEditMode(true);
+    toast('Standalone deck exported (edits baked in)');
+  }
+  function importEdits(file){
+    const r=new FileReader();
+    r.onload=()=>{ try{
+        EDITS=mergeEdits(EDITS, JSON.parse(r.result));
+        applySlideHtml(); saveLocal();
+        if(editMode) syncEditorFields();
+        updateNotes(); toast('Edits imported');
+      }catch(_){ toast('Import failed — not a valid edits file'); } };
+    r.readAsText(file);
+  }
+  function resetEdits(){
+    if(!confirm('Discard all local edits in this browser and restore the original deck?')) return;
+    try{ localStorage.removeItem(STORE_KEY); }catch(_){ }
+    location.reload();
+  }
+
+  function initEditor(){
+    // capture direct slide-text edits
+    slides.forEach((s,idx)=> s.addEventListener('input', ()=>{ if(!editMode) return; slideEntry(idx).html=s.innerHTML; saveSoon(); }));
+    // narration / comment / reviewer fields
+    document.getElementById('narEdit').addEventListener('input', function(){ slideEntry(i).narration=this.value; saveSoon(); updateNotes(); });
+    document.getElementById('cmtEdit').addEventListener('input', function(){ slideEntry(i).comment=this.value; saveSoon(); });
+    document.getElementById('revName').addEventListener('input', function(){ EDITS.reviewer=this.value; saveSoon(); });
+    // toolbar buttons
+    document.getElementById('editBtn').onclick=toggleEdit;
+    document.getElementById('exportJson').onclick=exportJson;
+    document.getElementById('exportHtml').onclick=exportHtml;
+    document.getElementById('resetBtn').onclick=resetEdits;
+    document.getElementById('importBtn').onclick=()=>document.getElementById('importFile').click();
+    document.getElementById('importFile').onchange=function(){ if(this.files[0]) importEdits(this.files[0]); this.value=''; };
+  }
+  // ================== end review / edit engine ==================
 
   // ---- speech synthesis (American-accent narration) ----
   const synth = window.speechSynthesis;
@@ -396,7 +568,7 @@
     if(!synth){ return; }
     const my = ++token;
     synth.cancel();
-    const u = new SpeechSynthesisUtterance(NARRATION[i]||'');
+    const u = new SpeechSynthesisUtterance(narr(i)||'');
     if(chosen) u.voice=chosen;
     u.lang = (chosen&&chosen.lang) || 'en-US';
     u.rate = rate; u.pitch = 1.0; u.volume = 1.0;
@@ -430,7 +602,7 @@
   }
 
   function updateNotes(){
-    document.getElementById('noteText').textContent = NARRATION[i]||'';
+    document.getElementById('noteText').textContent = narr(i)||'';
     document.getElementById('noteIdx').textContent = (i+1)+' / '+slides.length;
   }
 
@@ -441,6 +613,7 @@
     document.getElementById('bar').style.width=((i+1)/slides.length*100)+'%';
     document.getElementById('count').textContent=(i+1)+' / '+slides.length;
     updateNotes();
+    if(editMode) syncEditorFields();           // keep the editor on the current slide
     token++;                                   // invalidate any pending chain
     if(synth) synth.cancel();
     setPlayBtn();
@@ -482,6 +655,8 @@
 
   addEventListener('keydown', e=>{
     const k=e.key.toLowerCase();
+    // in edit mode, let the user type freely — only Escape is a shortcut
+    if(editMode){ if(e.key==='Escape'){ setEditMode(false); } return; }
     if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){go(1);e.preventDefault();}
     else if(e.key==='ArrowLeft'||e.key==='PageUp'){go(-1);e.preventDefault();}
     else if(e.key==='Home'){set(0);}
@@ -492,9 +667,12 @@
     else if(k==='s'){stopSpeak();}
     else if(k==='['){ rng.value=Math.max(0.5, rate-0.1).toFixed(2); rate=parseFloat(rng.value); applyRateLabel(); clearTimeout(rateTimer); respeakAtNewRate(); }
     else if(k===']'){ rng.value=Math.min(1.75, rate+0.1).toFixed(2); rate=parseFloat(rng.value); applyRateLabel(); clearTimeout(rateTimer); respeakAtNewRate(); }
+    else if(k==='e'){ toggleEdit(); }
     else if(k==='f'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}
   });
 
+  bootEdits();
+  initEditor();
   updatePresentBtn();
   set(0);
 </script>
