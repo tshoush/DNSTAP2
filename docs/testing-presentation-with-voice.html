@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DNSTAP2 — The Evidence Test (Narrated)</title>
+<style>
+  :root{
+    --bg:#0b1220; --bg2:#0f1830; --panel:#16223f; --panel2:#1c2c52;
+    --ink:#e8eefc; --muted:#9fb0d0; --line:#28395f;
+    --a1:#36d1c4; --a2:#f5a623; --a3:#7c9cff; --a4:#ff6b81; --good:#3ddc84;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1200px 700px at 70% -10%, #16244a 0%, var(--bg) 60%) fixed;
+    color:var(--ink); font:16px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    overflow:hidden;
+  }
+  .deck{position:fixed;inset:0}
+  .slide{position:absolute;inset:0;display:none;flex-direction:column;padding:54px 64px 92px;animation:fade .35s ease}
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  h1{font-size:46px;margin:0 0 6px;letter-spacing:-.5px}
+  h2{font-size:32px;margin:0 0 18px;letter-spacing:-.3px}
+  h2 .tag{font-size:14px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:2px;display:block;margin-bottom:6px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  .lead{font-size:20px;color:var(--muted);max-width:920px}
+  .pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.5px}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .port{font-family:ui-monospace,monospace;font-weight:700;color:#04121a;background:var(--a1);padding:2px 8px;border-radius:7px;font-size:13px}
+  .port.amber{background:var(--a2)} .port.blue{background:var(--a3);color:#06112e} .port.red{background:var(--a4);color:#2a0410}
+  .flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap;margin-top:8px}
+  .node{flex:1 1 0;min-width:150px;background:linear-gradient(180deg,var(--panel),var(--bg2));border:1px solid var(--line);border-radius:14px;padding:16px;position:relative}
+  .node .ic{font-size:26px}
+  .node h3{margin:6px 0 4px;font-size:16px}
+  .node p{margin:0;font-size:12.5px;color:var(--muted);line-height:1.35}
+  .node .who{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--a1)}
+  .arrow{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:78px;color:var(--muted);padding:0 4px}
+  .arrow .lab{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);text-align:center;margin-bottom:3px}
+  .arrow .ln{font-size:26px;line-height:1;color:var(--a1)}
+  .src .who{color:var(--a3)} .src .ic{filter:drop-shadow(0 0 8px rgba(124,156,255,.4))}
+  .store .who{color:var(--a2)} .viz .who{color:var(--good)}
+  .fanout{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}
+  .fanout .node{min-width:0}
+  table{border-collapse:collapse;width:100%;font-size:14px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:1px}
+  td .who{font-weight:700}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .three{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .card{background:linear-gradient(180deg,var(--panel),var(--bg2));border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .card h3{margin:0 0 6px;font-size:18px}.card small{color:var(--muted)}
+  ul.clean{margin:6px 0;padding-left:20px} ul.clean li{margin:6px 0;color:var(--ink)}
+  .kbd{font-family:ui-monospace,monospace;background:#0a1326;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:1px 7px;font-size:12px}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;font-size:12.5px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .big{font-size:60px;font-weight:800;line-height:1;background:linear-gradient(90deg,var(--a3),var(--a1));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .note{border-left:3px solid var(--a2);background:#1a1c34;padding:10px 14px;border-radius:0 10px 10px 0;color:var(--muted);font-size:13.5px;margin-top:12px}
+  .center{align-items:center;justify-content:center;text-align:center}
+  .step{display:inline-block;font-family:ui-monospace,monospace;font-weight:700;font-size:12px;padding:2px 9px;border-radius:7px;background:var(--panel2);color:var(--ink);border:1px solid var(--line)}
+  .step.off{background:#22304f;color:var(--muted)} .step.q{background:var(--a2);color:#23170a}
+  .step.qr{background:var(--a4);color:#2a0410} .step.dt{background:var(--good);color:#05210f}
+
+  /* chrome */
+  .top{position:fixed;top:0;left:0;right:0;height:5px;background:#0a1326;z-index:5}
+  .top > i{display:block;height:100%;background:linear-gradient(90deg,var(--a3),var(--a1),var(--a2));transition:width .3s}
+  .foot{position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 18px;color:var(--muted);font-size:13px;z-index:7;background:linear-gradient(180deg,rgba(11,18,32,0),rgba(11,18,32,.85))}
+  .foot .brand{font-weight:800;letter-spacing:.5px;color:var(--ink)}
+  .foot .brand b{color:var(--a1)}
+  .nav,.av{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .nav button,.av button{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:6px 12px;cursor:pointer;font-size:14px}
+  .nav button:hover,.av button:hover{background:var(--panel2)}
+  .av button.on{background:var(--a1);color:#04121a;border-color:var(--a1);font-weight:700}
+  .av button#present.on{background:var(--good);border-color:var(--good)}
+  .av select{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:6px 8px;font-size:12.5px;max-width:190px}
+  .av label.rate{display:inline-flex;gap:7px;align-items:center;color:var(--muted);font-size:12.5px;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:4px 10px}
+  .av label.rate input[type=range]{width:96px;accent-color:var(--a1)}
+  .av label.rate #rateVal{font-family:ui-monospace,monospace;color:var(--ink);min-width:38px;text-align:right}
+  .dots{display:flex;gap:6px;margin:0 8px}
+  .dots i{width:8px;height:8px;border-radius:50%;background:var(--line);cursor:pointer}
+  .dots i.on{background:var(--a1);transform:scale(1.25)}
+
+  /* narration drawer */
+  .notes{position:fixed;left:0;right:0;bottom:50px;max-height:36vh;overflow:auto;z-index:6;
+    background:rgba(7,12,24,.97);border-top:2px solid var(--a1);padding:14px 22px 18px;
+    transition:transform .32s ease;box-shadow:0 -16px 40px rgba(0,0,0,.45)}
+  .notes.hidden{transform:translateY(115%)}
+  .notes h4{margin:0 0 6px;color:var(--a1);font-size:12px;text-transform:uppercase;letter-spacing:1.5px}
+  .notes h4 .idx{float:right;color:var(--muted);font-weight:600;letter-spacing:.5px}
+  .notes p{margin:0;color:var(--ink);font-size:15.5px;line-height:1.65;max-width:1150px}
+  .notes .speakingdot{display:none;width:9px;height:9px;border-radius:50%;background:var(--good);margin-left:8px;vertical-align:middle;animation:pulse 1s infinite}
+  .notes.speaking .speakingdot{display:inline-block}
+  @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+  .hint{position:fixed;bottom:54px;right:22px;color:var(--muted);font-size:12px;z-index:5;opacity:.8}
+</style>
+</head>
+<body>
+<div class="top"><i id="bar"></i></div>
+<div class="deck" id="deck">
+
+  <section class="slide active center">
+    <div class="pill" style="background:var(--a1);color:#04121a">EVIDENCE TEST · NARRATED</div>
+    <h1 style="font-size:60px;margin-top:14px">DNSTAP2 — The Evidence Test</h1>
+    <p class="lead" style="font-size:23px;color:var(--ink)">Proving the value of <b>dnstap</b> over legacy DNS query logging —<br><b>one server, the same queries, measured under each logging mode.</b></p>
+    <div class="legend" style="justify-content:center;margin-top:26px">
+      <span><i class="sw" style="background:#22304f"></i>M0 baseline (off)</span>
+      <span><i class="sw" style="background:var(--a2)"></i>M1/M2 native logging</span>
+      <span><i class="sw" style="background:var(--good)"></i>M3 dnstap</span>
+      <span><i class="sw" style="background:var(--a3)"></i>same query file throughout</span>
+    </div>
+  </section>
+
+  <section class="slide">
+    <h2><span class="tag">The decision we have to make</span>What does dnstap actually add — and can we prove it?</h2>
+    <div class="two">
+      <div class="card"><h3 style="color:var(--a4)">❌ Legacy native query logging</h3>
+        <ul class="clean muted">
+          <li>Runs <b>inside</b> the DNS service path — Infoblox warns it can "adversely affect DNS performance."</li>
+          <li>So it's turned on to chase an incident, then <b>off again</b> — the data is missing when you need it.</li>
+          <li>One <b>query-only</b> log line; no response, no timing, no recursion view.</li>
+        </ul></div>
+      <div class="card"><h3 style="color:var(--good)">✅ dnstap (DNSTAP2)</h3>
+        <ul class="clean muted">
+          <li><b>Out-of-band</b> side channel → safe to leave <b>always on</b>.</li>
+          <li>Query <b>and</b> response, correlated, with 60+ fields.</li>
+          <li>The promise: more data, <b>less</b> impact on DNS.</li>
+        </ul></div>
+    </div>
+    <div class="note">This is a claim. The test exists to <b>prove it on our own hardware</b> — with numbers, not vendor marketing.</div>
+  </section>
+
+  <section class="slide">
+    <h2><span class="tag">The method in one picture</span>One server, the same queries, each mode in turn</h2>
+    <div class="flow">
+      <div class="node src"><div class="ic">🎯</div><div class="who">Load</div><h3>dnsperf / flame</h3><p>Replays the <b>same query file</b> at a ramped rate from a separate host.</p></div>
+      <div class="arrow"><div class="lab">same queries</div><div class="ln">→</div></div>
+      <div class="node"><div class="ic">🗄️</div><div class="who" style="color:var(--a1)">Under test</div><h3>ONE NIOS member</h3><p>Cycled through each logging mode — only the mode changes.</p></div>
+      <div class="arrow"><div class="lab">dnstap (M3 only)</div><div class="ln">→</div><span class="port">TCP 6001</span></div>
+      <div class="node viz"><div class="ic">📡</div><div class="who">Collector</div><h3>DNS-collector</h3><p>Captures events/s &amp; bytes/event during the dnstap run.</p></div>
+    </div>
+    <div class="three" style="margin-top:18px">
+      <div class="card"><h3 style="color:var(--a3)">Hold constant</h3><small>Same box, query file (checksummed), load profiles, warm-up, network.</small></div>
+      <div class="card"><h3 style="color:var(--a1)">Vary one thing</h3><small>The logging mode on the member — toggled in the Grid Manager GUI.</small></div>
+      <div class="card"><h3 style="color:var(--good)">Record</h3><small>QPS ceiling, latency, member CPU/mem, and the data captured.</small></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <h2><span class="tag">Why one server, not two</span>Eliminate hardware variance by construction</h2>
+    <div class="two">
+      <div class="card"><h3 style="color:var(--good)">✅ Solved for free</h3>
+        <ul class="clean muted">
+          <li>Same physical box in every mode → <b>no two-server equivalence problem</b>, no cross-over needed.</li>
+          <li>The comparison is apples-to-apples by design.</li>
+        </ul></div>
+      <div class="card"><h3 style="color:var(--a2)">⚠ The new risk: temporal drift</h3>
+        <ul class="clean muted">
+          <li>Runs happen at different times → cache warmth or background load could masquerade as a mode difference.</li>
+          <li>Controlled by: consistent <b>warm-up</b>, a <b>fixed run order</b>, and a closing <b>baseline drift check</b>.</li>
+        </ul></div>
+    </div>
+    <div class="note"><b>The gate:</b> we run the no-logging baseline first <i>and</i> last. If the closing baseline reproduces the opening one (M0' ≈ M0), every delta in between is trustworthy.</div>
+  </section>
+
+  <section class="slide">
+    <h2><span class="tag">The run sequence</span>Five runs, one mode at a time</h2>
+    <table>
+      <tr><th>Run</th><th>Mode on the member</th><th>What it tells us</th></tr>
+      <tr><td><span class="step off">M0</span></td><td>All logging <b>OFF</b></td><td>The reference everything is measured against.</td></tr>
+      <tr><td><span class="step q">M1</span></td><td>Native <b>query</b> logging only</td><td>The "normal" legacy logging penalty.</td></tr>
+      <tr><td><span class="step qr">M2</span></td><td>Native <b>query + response</b></td><td>The heavy mode Infoblox advises against — quantified.</td></tr>
+      <tr><td><span class="step dt">M3</span></td><td><b>dnstap</b> → collector</td><td>The proposed always-on path.</td></tr>
+      <tr><td><span class="step off">M0'</span></td><td>All logging <b>OFF</b> again</td><td>Drift check — should reproduce M0.</td></tr>
+    </table>
+    <div class="note">Only one mode is enabled at a time; the previous one is disabled before the next is turned on — so each run measures exactly one logging path.</div>
+  </section>
+
+  <section class="slide">
+    <h2><span class="tag">The trap, and how we avoid it</span>The cold-cache confound</h2>
+    <p class="muted" style="margin-top:-6px">Every GUI mode switch restarts DNS and <b>flushes the resolver cache</b>. Start load too soon and you measure upstream latency, not the logging mode.</p>
+    <div class="two" style="margin-top:8px">
+      <div class="card"><h3 style="color:var(--good)">Preferred — test authoritatively</h3>
+        <ul class="clean muted">
+          <li>Point the query file at zones the member is <b>authoritative</b> for.</li>
+          <li>No cache, no upstream, no warm-up — the confound simply disappears.</li>
+          <li>Isolates exactly the cost we care about: <b>serve + log</b>.</li>
+        </ul></div>
+      <div class="card"><h3 style="color:var(--a2)">If testing the recursive path</h3>
+        <ul class="clean muted">
+          <li>Settle after restart → identical <b>warm-up</b> → measure steady-state only.</li>
+          <li>Make cache state <b>identical</b> at the start of every run.</li>
+          <li>CPU &amp; disk are cache-independent; warm-up protects latency &amp; QPS.</li>
+        </ul></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <h2><span class="tag">What we measure</span>Three vantage points, every run</h2>
+    <div class="three">
+      <div class="node"><div class="ic">🎯</div><div class="who" style="color:var(--a3)">From the generator</div><h3>Client-side truth</h3><p>Achieved QPS, latency (avg/min/max), <b>queries lost</b>, response-code mix.</p></div>
+      <div class="node"><div class="ic">🖥️</div><div class="who" style="color:var(--a2)">On the member (SNMP)</div><h3>Server cost</h3><p>CPU &amp; memory via Infoblox <code>ibSystemMonitor</code> OIDs — where logging's cost shows.</p></div>
+      <div class="node"><div class="ic">📡</div><div class="who" style="color:var(--good)">At the collector</div><h3>Pipeline &amp; storage</h3><p>dnstap events/s and <b>bytes/event</b> for the storage projection.</p></div>
+    </div>
+    <div class="note">Member CPU/mem are read with built-in OIDs — CPU <code>1.3.6.1.4.1.7779.3.1.1.2.1.8.1.1.0</code>, memory <code>…8.2.1.0</code>. NIOS doesn't surface disk I/O over SNMP, so the native-logging disk-write cost is read from the member's stats.</div>
+  </section>
+
+  <section class="slide">
+    <h2><span class="tag">The tests</span>Four questions, asked of every mode</h2>
+    <table>
+      <tr><th>ID</th><th>Test</th><th>What it answers</th></tr>
+      <tr><td><span class="who" style="color:var(--a1)">T2</span></td><td>Max QPS ceiling (ramp)</td><td>How high can the member go before the SLA breaks — per mode?</td></tr>
+      <tr><td><span class="who" style="color:var(--a1)">T3</span></td><td>Fixed-load latency / CPU / mem</td><td>At steady load, what does each mode cost in latency and resources?</td></tr>
+      <tr><td><span class="who" style="color:var(--a2)">T4</span></td><td>Soak (2–4 h)</td><td>Any drift, leak, or log-disk fill over time?</td></tr>
+      <tr><td><span class="who" style="color:var(--a4)">T7</span></td><td>Failure / safety</td><td><b>dnstap:</b> kill the collector — does DNS stay healthy? <b>native:</b> disk/IO pressure.</td></tr>
+    </table>
+    <div class="note">T7 is the safety proof: losing the telemetry sink must never threaten resolution — that's the whole point of out-of-band.</div>
+  </section>
+
+  <section class="slide">
+    <h2><span class="tag">How we run it</span>The harness — <code>scripts/poc/</code></h2>
+    <div class="three">
+      <div class="card"><h3>🧭 The guide</h3><small><code>run_poc_campaign.sh</code> — walks M0→M0' in order, prints the exact GUI change per step, launches the right test, and <b>tracks progress</b>.</small></div>
+      <div class="card"><h3>🧪 Two test scripts</h3><small><code>run_test_querylog.sh</code> (M0/M1/M2) and <code>run_test_dnstap.sh</code> (M3 + safety) — interactive: <b>skip</b> or <b>re-run</b> any test.</small></div>
+      <div class="card"><h3>📊 The processor</h3><small><code>process_results.py</code> → drift check, QPS-ceiling, latency/CPU/mem, and storage tables.</small></div>
+    </div>
+    <div class="note">Results are <b>append-only</b> — re-running a failed test just writes a new run; the latest one wins. Everything is <b>read-only</b> against the member and collector; you toggle modes in the GUI.</div>
+  </section>
+
+  <section class="slide">
+    <h2><span class="tag">Follow along, never lose your place</span>The guided campaign &amp; progress board</h2>
+    <div class="two">
+      <div class="card mono" style="font-size:13px;line-height:1.8">
+        <div class="muted">DNSTAP2 POC campaign — progress</div><br>
+        1) [<span style="color:var(--good)">✓</span>] M0&nbsp; Baseline — all logging OFF<br>
+        2) [<span style="color:var(--good)">✓</span>] M1&nbsp; Native QUERY logging<br>
+        3) [<span style="color:var(--a2)">·</span>] M2&nbsp; Native QUERY + RESPONSE<br>
+        4) [<span style="color:var(--a2)">·</span>] M3&nbsp; dnstap → collector<br>
+        5) [<span style="color:var(--a2)">·</span>] M0' Baseline again — drift check<br>
+        6) [<span style="color:var(--a2)">·</span>] Process results
+      </div>
+      <div class="card"><h3>What the guide does for each step</h3>
+        <ul class="clean muted">
+          <li>Prints the <b>exact Grid Manager clicks</b> for that mode.</li>
+          <li>Waits for you to confirm the change + DNS restart.</li>
+          <li>Runs the load test, then records <span style="color:var(--good)">✓ done</span> / <span style="color:var(--a4)">✗ failed</span> / <span style="color:var(--a2)">⊘ skipped</span>.</li>
+          <li><b>Stop and resume any time</b> — settings and progress are saved to disk.</li>
+        </ul></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <h2><span class="tag">What comes out</span>The comparison the decision needs</h2>
+    <div class="two">
+      <div class="card"><h3>The headline tables</h3>
+        <ul class="clean muted">
+          <li><b>Drift check:</b> M0 vs M0' — the trust gate.</li>
+          <li><b>QPS ceiling per mode</b> — and the % each logging mode costs vs baseline.</li>
+          <li><b>Latency / CPU / memory</b> at steady load, side by side.</li>
+          <li><b>Storage</b> — bytes/event → GB/day at retention.</li>
+        </ul></div>
+      <div class="card"><h3>Already known from the lab <small>(to be confirmed on the member)</small></h3>
+        <ul class="clean muted">
+          <li>Collector cost: <b>~200 µs CPU/event</b>, <b>~205 MB</b> RAM.</li>
+          <li>Storage: <b>1,745 B/event</b> raw → <b>54.7× gzip</b>.</li>
+          <li>Fidelity: <b>60+ fields</b> vs one query-only log line.</li>
+        </ul></div>
+    </div>
+    <div class="note">The pipeline's cost is already shown small; this test supplies the missing, decisive piece — the DNS-server penalty of each mode.</div>
+  </section>
+
+  <section class="slide">
+    <h2><span class="tag">How we decide</span>Go / no-go framework</h2>
+    <div class="two">
+      <div class="card"><h3 style="color:var(--good)">Recommend dnstap if…</h3>
+        <ul class="clean muted">
+          <li>It shows <b>materially lower</b> DNS impact than native logging at peak (T2/T3).</li>
+          <li>DNS stays healthy when the collector is lost (T7).</li>
+          <li>Storage / SIEM cost is acceptable (T3 bytes/event + sizing).</li>
+        </ul></div>
+      <div class="card"><h3 style="color:var(--a2)">Stay on native logging only if…</h3>
+        <ul class="clean muted">
+          <li>Its measured penalty is <b>negligible</b> at our real peak, <b>and</b></li>
+          <li>dnstap's storage/SIEM cost is disproportionate to the value.</li>
+          <li>Then: codify strict on-demand logging with guardrails.</li>
+        </ul></div>
+    </div>
+    <div class="note">A tie breaks toward whichever better protects <b>DNS availability</b> — the primary mandate.</div>
+  </section>
+
+  <section class="slide center">
+    <h2 style="text-align:center"><span class="tag">In one breath</span>The test, and why it's credible</h2>
+    <div class="three" style="max-width:1040px;margin-top:6px">
+      <div class="card"><div class="big">1</div><p class="muted">server, same hardware — <b>zero</b> hardware variance</p></div>
+      <div class="card"><div class="big">5</div><p class="muted">runs, M0→M0', gated by a <b>drift check</b></p></div>
+      <div class="card"><div class="big">60+</div><p class="muted">fields dnstap captures vs <b>one</b> query-only log line</p></div>
+    </div>
+    <p class="lead" style="margin-top:26px;text-align:center">Same box, same queries, one variable — the logging mode.<br><b>Evidence we can defend, not a claim we have to trust.</b></p>
+    <div class="pill" style="background:var(--good);color:#05210f;margin-top:18px">RUN IT → ./scripts/poc/run_poc_campaign.sh</div>
+  </section>
+
+</div>
+
+<!-- narration drawer -->
+<div class="notes" id="notes">
+  <h4>Speaker narration <span class="speakingdot"></span><span class="idx" id="noteIdx"></span></h4>
+  <p id="noteText"></p>
+</div>
+
+<div class="hint">← / → navigate · <span class="kbd">P</span> play/pause · <span class="kbd">A</span> auto-present · <span class="kbd">[ ]</span> speed · <span class="kbd">N</span> notes · <span class="kbd">F</span> fullscreen</div>
+<div class="foot">
+  <div class="brand">DNS<b>TAP2</b> · evidence test</div>
+  <div class="av">
+    <button id="play" title="Play / pause narration (P)">▶ Narrate</button>
+    <button id="present" title="Auto-present: narrate every slide hands-free (A)">🎬 Auto-present</button>
+    <button id="stop" title="Stop narration (S)">⏹</button>
+    <label class="rate" title="Narration speed">⏩ <input type="range" id="rate" min="0.5" max="1.75" step="0.05" value="1"><span id="rateVal">1.0×</span></label>
+    <button id="toggleNotes" class="on" title="Show/hide narration (N)">📝 Notes</button>
+    <select id="voice" title="Narration voice"></select>
+  </div>
+  <div class="nav">
+    <button onclick="go(-1)">‹ Prev</button>
+    <div class="dots" id="dots"></div>
+    <button onclick="go(1)">Next ›</button>
+    <span id="count" class="muted" style="margin-left:8px"></span>
+  </div>
+</div>
+
+<script>
+  // ---- per-slide narration (talk track), one entry per slide ----
+  const NARRATION = [
+    `Welcome. This is the evidence test for DNSTAP2 — the experiment that decides whether dnstap is genuinely better than our legacy DNS query logging. The whole design fits in one sentence: one server, the same queries, measured under each logging mode in turn. Over the next few minutes I'll walk through the method, what we control, what we measure, the tests we run, and how the results drive a clear go or no-go decision.`,
+    `Start with the decision we actually have to make. Legacy native query logging runs inside the DNS service path — Infoblox themselves warn it can adversely affect DNS performance. So teams turn it on to chase an incident and then turn it back off, which means the data is missing exactly when an investigation needs it. And it gives you a single query-only log line — no response, no timing, no recursion view. dnstap promises the opposite: an out-of-band side channel, safe to leave always on, capturing query and response together with sixty-plus fields. But that's a claim. This test exists to prove it on our own hardware, with numbers — not vendor marketing.`,
+    `Here's the method in one picture. A load generator — dnsperf or flamethrower — replays the same query file, from a separate host, at a steadily increasing rate. It points at one NIOS member, and we cycle that single member through each logging mode. Only the logging mode ever changes. During the dnstap run, the member also streams to the DNS-collector on T-C-P 6001, where we capture events per second and bytes per event. We hold everything constant — the box, the query file, the load profiles, the warm-up, the network — vary exactly one thing, the logging mode, and record the queries-per-second ceiling, latency, member C-P-U and memory, and the data each mode captures.`,
+    `Why one server instead of two? Because using the same physical box in every mode eliminates hardware variance for free — there's no two-server equivalence problem, and no need for a cross-over. The comparison is apples-to-apples by construction. The trade-off is a new risk: temporal drift. The runs happen at different times, so cache warmth or background load could masquerade as a mode difference. We control that with a consistent warm-up, a fixed run order, and — the key gate — a closing baseline. We run the no-logging baseline first and again last. If the closing baseline reproduces the opening one, every delta in between is trustworthy.`,
+    `So the campaign is five runs, one mode at a time. M-zero: all logging off — the reference. M-one: native query logging only — the normal legacy penalty. M-two: native query and response logging together — the heavy mode Infoblox advises against, which we deliberately quantify. M-three: dnstap to the collector — the proposed always-on path. And M-zero-prime: all logging off again, the drift check. Only one mode is ever enabled at a time; we disable the previous one before turning on the next, so each run measures exactly one logging path.`,
+    `Now the trap we have to avoid. Every time you switch modes in the GUI, the DNS service restarts and the resolver cache is flushed. Start the load too soon and you're measuring upstream latency, not the logging mode. There are two ways to handle it. The preferred way is to test authoritatively — point the query file at zones the member is authoritative for. Then there's no cache and no upstream, no warm-up needed, and the confound simply disappears; you isolate exactly the cost we care about, serving plus logging. If you must test the recursive path, you make the cache state identical at the start of every run: settle after the restart, apply an identical warm-up, and measure only the steady state. Helpfully, C-P-U and disk cost are cache-independent — it's mainly latency and the Q-P-S ceiling that the warm-up protects.`,
+    `Every run is measured from three vantage points. From the generator we get client-side truth — achieved queries per second, latency, queries lost, and the response-code mix. On the member, over S-N-M-P, we capture C-P-U and memory using Infoblox's own ibSystemMonitor OIDs — that's where logging's cost shows up. And at the collector we capture dnstap events per second and bytes per event, which feeds the storage projection. The C-P-U and memory OIDs are built into the harness. One honest note: NIOS doesn't expose fine-grained disk I-O over S-N-M-P, so the native-logging disk-write cost is read from the member's own stats.`,
+    `We ask four questions of every mode. T-two: the maximum queries-per-second ceiling — we ramp the load until the S-L-A breaks, and see how high each mode can go. T-three: at a fixed steady load, what does each mode cost in latency, C-P-U, and memory. T-four: a two-to-four-hour soak, watching for drift, memory leaks, or the log disk filling. And T-seven: the failure and safety test. For dnstap, we kill the collector mid-load and confirm DNS stays healthy. For native logging, we induce disk pressure. T-seven is the safety proof — losing the telemetry sink must never threaten resolution, and that's the entire point of going out-of-band.`,
+    `How do we actually run it? There's a harness under scripts slash p-o-c. A guide script walks the whole campaign in order, prints the exact GUI change for each step, launches the right test, and tracks your progress. Two test scripts do the work — one for the baseline and native modes, one for dnstap plus the safety test — and both are interactive, so you can skip or re-run any individual test. And a processor turns the raw results into the comparison tables. Results are append-only, so re-running a failed test simply writes a new run and the latest one wins. Everything is read-only against the member and the collector — you toggle the modes in the GUI, the scripts just measure.`,
+    `This is what keeps you oriented during a multi-hour test: the guided campaign and its progress board. It shows every step with a status — done, pending, failed, or skipped. For each step, the guide prints the exact Grid Manager clicks for that mode, waits for you to confirm the change and the DNS restart, runs the load test, and then records the outcome. Your settings and progress are saved to disk, so you can stop and resume any time without losing your place. It turns a fiddly, error-prone sequence into a checklist you just follow.`,
+    `And here's what comes out — the comparison the decision actually needs. The drift check, M-zero versus M-zero-prime, our trust gate. The queries-per-second ceiling per mode, with the percentage each logging mode costs against baseline. Latency, C-P-U, and memory at steady load, side by side. And storage — bytes per event projected to gigabytes per day at our retention. We already know from the lab that the pipeline itself is cheap — about two hundred microseconds of C-P-U per event, around two hundred megabytes of memory, storage that compresses fifty-five to one, and sixty-plus fields of fidelity versus a single query-only line. This test supplies the one missing, decisive piece: the DNS-server penalty of each mode, on our hardware.`,
+    `Which gives us a clean go or no-go. We recommend dnstap if it shows a materially lower DNS impact than native logging at peak, if DNS stays healthy when the collector is lost, and if the storage and S-I-E-M cost is acceptable. We stay on native logging only if its measured penalty is negligible at our real peak and dnstap's storage cost is disproportionate to the value — in which case we'd codify strict on-demand logging with guardrails. And if it's ever a tie, it breaks toward whichever option better protects DNS availability, because that is the primary mandate.`,
+    `To sum up in one breath. One server, same hardware — zero hardware variance. Five runs, M-zero through M-zero-prime, gated by a drift check so the numbers are trustworthy. And sixty-plus fields that dnstap captures versus a single query-only log line. Same box, same queries, one variable — the logging mode. That's evidence we can defend, not a claim we have to trust. Let's run it.`
+  ];
+
+  const slides=[...document.querySelectorAll('.slide')];
+  const dots=document.getElementById('dots');
+  const notes=document.getElementById('notes');
+  let i=0;
+
+  slides.forEach((_,n)=>{const d=document.createElement('i');d.onclick=()=>set(n);dots.appendChild(d);});
+
+  // ---- speech synthesis (American-accent narration) ----
+  const synth = window.speechSynthesis;
+  let voices=[], chosen=null, rate=1.0, presenting=false, token=0;
+
+  function scoreVoice(v){
+    const n=(v.name||'').toLowerCase(), l=(v.lang||'').toLowerCase();
+    let s=0;
+    if(l==='en-us'||l==='en_us') s+=6; else if(l.indexOf('en')===0) s+=2;
+    if(/natural|neural|online/.test(n)) s+=4;
+    if(/aria|jenny|guy|michelle|ana|christopher|eric|roger|steffan|davis|jane|nancy/.test(n)) s+=3;
+    if(/google us english/.test(n)) s+=3;
+    if(/zira|david|mark/.test(n)) s+=1;
+    return s;
+  }
+  function loadVoices(){
+    const all = synth ? synth.getVoices() : [];
+    voices = all.filter(v=>/^en/i.test(v.lang)).sort((a,b)=>scoreVoice(b)-scoreVoice(a));
+    const sel=document.getElementById('voice'); sel.innerHTML='';
+    if(!voices.length){const o=document.createElement('option');o.textContent='(no voice — browser TTS off)';sel.appendChild(o);chosen=null;return;}
+    voices.forEach((v,n)=>{const o=document.createElement('option');o.value=n;o.textContent=v.name+' · '+v.lang;sel.appendChild(o);});
+    chosen=voices[0]; sel.value='0';
+    sel.onchange=()=>{chosen=voices[+sel.value]||null;};
+  }
+  if(synth){ synth.onvoiceschanged=loadVoices; loadVoices(); } else { loadVoices(); }
+
+  function setPlayBtn(){
+    const b=document.getElementById('play');
+    const on = synth && synth.speaking && !synth.paused;
+    b.textContent = on ? '⏸ Pause' : '▶ Narrate';
+    b.classList.toggle('on', !!on);
+    notes.classList.toggle('speaking', !!on);
+  }
+  function updatePresentBtn(){
+    const b=document.getElementById('present');
+    b.classList.toggle('on', presenting);
+    b.textContent = presenting ? '■ Stop present' : '🎬 Auto-present';
+  }
+
+  // speak the CURRENT slide's narration; chain to next slide when auto-presenting
+  function speakSlide(){
+    if(!synth){ return; }
+    const my = ++token;
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(NARRATION[i]||'');
+    if(chosen) u.voice=chosen;
+    u.lang = (chosen&&chosen.lang) || 'en-US';
+    u.rate = rate; u.pitch = 1.0; u.volume = 1.0;
+    u.onstart = setPlayBtn;
+    u.onerror = setPlayBtn;
+    u.onend = function(){
+      setPlayBtn();
+      if(my !== token) return;                 // superseded by navigation / stop / restart
+      if(presenting){
+        if(i < slides.length-1){ set(i+1, true); }   // advance & keep presenting
+        else { presenting=false; updatePresentBtn(); }
+      }
+    };
+    synth.speak(u);
+    setTimeout(setPlayBtn, 60);
+  }
+
+  function playPause(){
+    if(!synth) return;
+    if(synth.speaking && !synth.paused){ synth.pause(); }
+    else if(synth.paused){ synth.resume(); }
+    else { speakSlide(); }
+    setTimeout(setPlayBtn, 60);
+  }
+  function stopSpeak(){ presenting=false; updatePresentBtn(); token++; if(synth) synth.cancel(); setPlayBtn(); }
+  function togglePresent(){
+    presenting = !presenting;
+    updatePresentBtn();
+    if(presenting){ speakSlide(); }            // begin hands-free from current slide
+    else { token++; if(synth) synth.cancel(); setPlayBtn(); }
+  }
+
+  function updateNotes(){
+    document.getElementById('noteText').textContent = NARRATION[i]||'';
+    document.getElementById('noteIdx').textContent = (i+1)+' / '+slides.length;
+  }
+
+  function set(n, fromPresent){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,k)=>s.classList.toggle('active',k===i));
+    [...dots.children].forEach((d,k)=>d.classList.toggle('on',k===i));
+    document.getElementById('bar').style.width=((i+1)/slides.length*100)+'%';
+    document.getElementById('count').textContent=(i+1)+' / '+slides.length;
+    updateNotes();
+    token++;                                   // invalidate any pending chain
+    if(synth) synth.cancel();
+    setPlayBtn();
+    if(presenting){ setTimeout(speakSlide, fromPresent ? 450 : 250); }  // keep presenting
+  }
+  function go(d){ set(i+d); }
+
+  // ---- speed (rate) control ----
+  const rng = document.getElementById('rate');
+  let rateTimer=null;
+  function fmtRate(r){ return (Math.round(r*100)/100).toString().replace(/(\.\d)0$/,'$1') + '×'; }
+  function applyRateLabel(){ document.getElementById('rateVal').textContent = fmtRate(rate); }
+  // Web Speech ignores rate changes on a live utterance — you must restart it. And on
+  // Chrome/Edge an immediate cancel()+speak() drops the new utterance, so we delay the
+  // re-speak slightly to let cancel() flush. Restarts the current slide at the new speed.
+  function respeakAtNewRate(){
+    if(!synth) return;
+    const wasActive = synth.speaking || synth.paused;
+    if(!wasActive) return;          // not talking → new rate just applies on next play
+    token++;                        // invalidate the in-flight utterance's onend chain
+    synth.cancel();
+    setTimeout(speakSlide, 140);    // re-speak after cancel settles (Chrome/Edge quirk)
+  }
+  rng.oninput = function(){
+    rate = parseFloat(rng.value)||1.0; applyRateLabel();
+    clearTimeout(rateTimer); rateTimer = setTimeout(respeakAtNewRate, 220); // live-ish while dragging
+  };
+  rng.onchange = function(){ clearTimeout(rateTimer); respeakAtNewRate(); };
+  applyRateLabel();
+
+  // ---- wiring ----
+  document.getElementById('play').onclick = playPause;
+  document.getElementById('stop').onclick = stopSpeak;
+  document.getElementById('present').onclick = togglePresent;
+  document.getElementById('toggleNotes').onclick = function(){
+    const hidden = notes.classList.toggle('hidden');
+    this.classList.toggle('on', !hidden);
+  };
+
+  addEventListener('keydown', e=>{
+    const k=e.key.toLowerCase();
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){go(1);e.preventDefault();}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){go(-1);e.preventDefault();}
+    else if(e.key==='Home'){set(0);}
+    else if(e.key==='End'){set(slides.length-1);}
+    else if(k==='p'){playPause();e.preventDefault();}
+    else if(k==='a'){togglePresent();}
+    else if(k==='n'){document.getElementById('toggleNotes').click();}
+    else if(k==='s'){stopSpeak();}
+    else if(k==='['){ rng.value=Math.max(0.5, rate-0.1).toFixed(2); rate=parseFloat(rng.value); applyRateLabel(); clearTimeout(rateTimer); respeakAtNewRate(); }
+    else if(k===']'){ rng.value=Math.min(1.75, rate+0.1).toFixed(2); rate=parseFloat(rng.value); applyRateLabel(); clearTimeout(rateTimer); respeakAtNewRate(); }
+    else if(k==='f'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}
+  });
+
+  updatePresentBtn();
+  set(0);
+</script>
+</body>
+</html>

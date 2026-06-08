@@ -51,6 +51,9 @@ local_config.toml
 /var/
 /tmp_data/
 
+# POC harness runtime output (results.jsonl, raw runs, campaign state)
+poc-results/
+
 # Local config with secrets — only the example is committed
 config.toml
 !config.example.toml

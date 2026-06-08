@@ -7,6 +7,9 @@
 | [jira-stories.md](jira-stories.md) | Execution backlog — 6 epics, 19 stories (62 pts) with acceptance criteria |
 | [jira-stories.csv](jira-stories.csv) | The same backlog, ready to **import into Jira** (Issue Type / Epic / Story Points / Priority / Labels / AC) |
 | [poc-business-case.html](poc-business-case.html) | **Stakeholder pitch deck** — makes the case for the POC and shows the working proof (open in a browser) |
+| [dnstap-value-evidence.md](dnstap-value-evidence.md) | **Evidence & findings** — what dnstap adds over native query logging, measured on the lab stack (CPU/event, memory, 60+ fields, bytes/event, 54.7× compression) + exec summary, methodology, caveats |
+| [dnstap-collector-sizing.md](dnstap-collector-sizing.md) | **VM sizing** derived from those measurements — CPU/RAM/disk/network, storage-by-retention tables, and three reference builds (POC / production / HA) |
+| [../scripts/poc/](../scripts/poc/) | **Interactive test harness** that executes the single-server sequential test — `run_test_dnstap.sh`, `run_test_querylog.sh`, `process_results.py` (see its [README](../scripts/poc/README.md)) |
 
 ## Operations & integration
 | Document | Purpose |
@@ -21,5 +24,6 @@
 |---|---|
 | [demo-presentation.html](demo-presentation.html) | Self-contained demo deck — data flow & component roles |
 | [demo-presentation-with-voice.html](demo-presentation-with-voice.html) | Narrated version (browser TTS, speed control, auto-present) |
+| [testing-presentation-with-voice.html](testing-presentation-with-voice.html) | **Narrated walkthrough of the evidence test** — single-server method, the M0→M0' run sequence, what's measured, the harness, and the go/no-go (browser TTS, auto-present) |
 
 > Top-level repo docs: `ARCHITECTURE.md`, `QUICKSTART.md`, `CLAUDE.md`.
