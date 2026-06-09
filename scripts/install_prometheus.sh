@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # install_prometheus.sh — install Prometheus (standalone, systemd) on RHEL/CentOS
-# 7+ or Debian/Ubuntu (incl. WSL2). Scrapes the Vector dnstap exporter (:9598) and
+# 7+ or Debian/Ubuntu (incl. systemd-enabled WSL2). Scrapes the Vector dnstap exporter (:9598) and
 # the optional DNS-collector exporter (:9599). Static Go binary — works on glibc
 # 2.17 (RHEL 7) and modern Ubuntu alike.
 #
@@ -35,7 +35,9 @@ RULES_DIR=/etc/prometheus/rules
 case "$(uname -m)" in x86_64) A=amd64;; aarch64) A=arm64;; *) echo "unsupported arch"; exit 1;; esac
 
 echo "==> Installing Prometheus ${PROM_VERSION} (${A})"
-if [ -x "$BIN" ] && "$BIN" --version 2>/dev/null | grep -q "$PROM_VERSION"; then
+if [ -x "$BIN" ] && [ -x "$PROMTOOL" ] \
+  && "$BIN" --version 2>/dev/null | grep -Fq "$PROM_VERSION" \
+  && "$PROMTOOL" --version 2>/dev/null | grep -Fq "$PROM_VERSION"; then
   echo "    already installed, skipping download"
 else
   TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
@@ -57,7 +59,26 @@ chown -R prometheus:prometheus "$DATA"
 echo "==> Config $CONF"
 # Base scrape config only. Mirrors templates/prometheus.yml.tmpl; the optional
 # dnscollector job is harmless if that receiver isn't installed (just shows down).
-# rule_files + alerting are added later by install_alertmanager.sh.
+# This script owns only global + scrape_configs; every other top-level section
+# (rule_files/alerting from install_alertmanager.sh, remote_write, ...) is
+# preserved when refreshing the scrape config.
+PRESERVED_ALERTING=""
+if [ -f "$CONF" ]; then
+  cp -a "$CONF" "${CONF}.bak.$(date +%s)"
+  PRESERVED_ALERTING="$(
+    awk '
+      /^[A-Za-z_][A-Za-z0-9_]*:/ {
+        key = $1
+        sub(/:.*/, "", key)
+        keep = (key != "global" && key != "scrape_configs")
+      }
+      keep {print}
+    ' "$CONF"
+  )"
+  if [ -n "$PRESERVED_ALERTING" ]; then
+    echo "    preserving existing non-scrape sections (rule_files/alerting/...)"
+  fi
+fi
 cat > "$CONF" <<EOF
 global:
   scrape_interval: ${SCRAPE_INTERVAL}
@@ -85,11 +106,15 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:${PORT}"]
 EOF
+if [ -n "$PRESERVED_ALERTING" ]; then
+  printf '\n%s\n' "$PRESERVED_ALERTING" >> "$CONF"
+fi
 chown -R prometheus:prometheus /etc/prometheus
 "$PROMTOOL" check config "$CONF" >/dev/null && echo "    config OK"
 
-echo "==> systemd unit"
-cat > /etc/systemd/system/prometheus.service <<EOF
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  echo "==> systemd unit"
+  cat > /etc/systemd/system/prometheus.service <<EOF
 [Unit]
 Description=Prometheus
 After=network-online.target
@@ -112,20 +137,26 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 EOF
 
-echo "==> Firewall (best-effort)"
-if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
-  firewall-cmd --permanent --add-port="${PORT}/tcp" >/dev/null || true
-  firewall-cmd --reload >/dev/null || true
-fi
+  echo "==> Firewall (best-effort)"
+  if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+    firewall-cmd --permanent --add-port="${PORT}/tcp" >/dev/null || true
+    firewall-cmd --reload >/dev/null || true
+  fi
 
-echo "==> Enable + start"
-systemctl daemon-reload
-systemctl enable prometheus >/dev/null 2>&1 || true
-systemctl restart prometheus
-for i in $(seq 1 20); do
-  code=$(curl -s -m3 -o /dev/null -w "%{http_code}" "http://127.0.0.1:${PORT}/-/ready" 2>/dev/null || true)
-  [ "$code" = "200" ] && break; sleep 2
-done
-echo "    /-/ready -> ${code:-down}"
-echo "Prometheus on :${PORT}. Scrapes ${VECTOR_TARGET} (vector) + ${DNSCOLLECTOR_TARGET} (dnscollector)."
-echo "Run install_alertmanager.sh next to add alert rules + Alertmanager wiring."
+  echo "==> Enable + start"
+  systemctl daemon-reload
+  systemctl enable prometheus >/dev/null 2>&1 || true
+  systemctl restart prometheus
+  for i in $(seq 1 20); do
+    code=$(curl -s -m3 -o /dev/null -w "%{http_code}" "http://127.0.0.1:${PORT}/-/ready" 2>/dev/null || true)
+    [ "$code" = "200" ] && break; sleep 2
+  done
+  echo "    /-/ready -> ${code:-down}"
+  echo "Prometheus on :${PORT}. Scrapes ${VECTOR_TARGET} (vector) + ${DNSCOLLECTOR_TARGET} (dnscollector)."
+  echo "Run install_alertmanager.sh next to add alert rules + Alertmanager wiring."
+else
+  echo "==> systemd not detected"
+  echo "    installed binaries and wrote $CONF, but did not write/start a service."
+  echo "    run manually:"
+  echo "    $BIN --config.file=$CONF --storage.tsdb.path=$DATA --web.listen-address=0.0.0.0:$PORT --web.enable-lifecycle"
+fi

@@ -3,11 +3,16 @@
 #
 # - Detects OS (Ubuntu, RHEL, WSL2, macOS) and prints platform-specific hints.
 # - Prompts for the Python executable to use (with a sane default).
+# - Prompts for the Python binary directory for repeatable RHEL installs.
 # - Validates that it is Python 3.11+ (we need stdlib tomllib).
 # - Creates .venv and installs the project.
 # - Records the chosen interpreter to .python-path for setup.sh to consume.
+# - Records the chosen binary directory to .python-bin-dir for automation.
 #
-# Re-runnable: pass --recreate to blow away an existing .venv.
+# Usage:
+#   ./scripts/bootstrap.sh
+#   ./scripts/bootstrap.sh --python-bin-dir /usr/local/bin
+#   ./scripts/bootstrap.sh --recreate
 
 set -euo pipefail
 
@@ -16,12 +21,23 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 RECREATE=0
-for arg in "$@"; do
-  case "$arg" in
+PYTHON_BIN_DIR="${DNSTAP2_PYTHON_BIN_DIR:-${PYTHON_BIN_DIR:-}}"
+if [[ -z "$PYTHON_BIN_DIR" && -f .python-bin-dir ]]; then
+  PYTHON_BIN_DIR="$(cat .python-bin-dir)"
+fi
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     --recreate) RECREATE=1 ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
-    *) echo "unknown flag: $arg" >&2; exit 64 ;;
+    --python-bin-dir)
+      shift
+      [[ $# -gt 0 ]] || { echo "--python-bin-dir requires a value" >&2; exit 64; }
+      PYTHON_BIN_DIR="$1"
+      ;;
+    --python-bin-dir=*) PYTHON_BIN_DIR="${1#*=}" ;;
+    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    *) echo "unknown flag: $1" >&2; exit 64 ;;
   esac
+  shift
 done
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -203,6 +219,69 @@ if [[ -z "$best" ]]; then
   done
 fi
 
+DEFAULT_PYTHON_BIN_DIR="$PYTHON_BIN_DIR"
+if [[ -z "$DEFAULT_PYTHON_BIN_DIR" && -n "$best" ]]; then
+  DEFAULT_PYTHON_BIN_DIR="$(dirname "$best")"
+fi
+
+if [[ -n "$DEFAULT_PYTHON_BIN_DIR" ]]; then
+  if [[ -t 0 ]]; then
+    printf "  Python binary directory [%s]: " "$DEFAULT_PYTHON_BIN_DIR"
+    read -r BIN_DIR_CHOICE
+  else
+    BIN_DIR_CHOICE=""
+  fi
+  PYTHON_BIN_DIR="${BIN_DIR_CHOICE:-$DEFAULT_PYTHON_BIN_DIR}"
+else
+  if [[ -t 0 ]]; then
+    printf "  Python binary directory (optional): "
+    read -r PYTHON_BIN_DIR
+  fi
+fi
+
+if [[ -n "$PYTHON_BIN_DIR" ]]; then
+  if [[ ! -d "$PYTHON_BIN_DIR" ]]; then
+    echo "  ! Python binary directory does not exist: $PYTHON_BIN_DIR" >&2
+    if [[ -n "$best" ]]; then
+      echo "    falling back to $best (found on PATH)" >&2
+      PYTHON_BIN_DIR=""
+    else
+      exit 1
+    fi
+  fi
+fi
+if [[ -n "$PYTHON_BIN_DIR" ]]; then
+  PYTHON_BIN_DIR="$(cd "$PYTHON_BIN_DIR" && pwd -P)"
+  DIR_PY_FOUND=0
+  for p in \
+    "$PYTHON_BIN_DIR/python3.13" \
+    "$PYTHON_BIN_DIR/python3.12" \
+    "$PYTHON_BIN_DIR/python3.11" \
+    "$PYTHON_BIN_DIR/python3" \
+    "$PYTHON_BIN_DIR/python"; do
+    if [[ -x "$p" ]]; then
+      ver=$("$p" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "0.0")
+      major=${ver%%.*}
+      minor=${ver##*.}
+      if [[ "$major" -gt 3 ]] || { [[ "$major" -eq 3 ]] && [[ "$minor" -ge 11 ]]; }; then
+        best="$p"
+        best_version="$ver"
+        DIR_PY_FOUND=1
+        break
+      fi
+    fi
+  done
+  if [[ $DIR_PY_FOUND -eq 0 ]]; then
+    echo "  ! no Python 3.11+ executable found in $PYTHON_BIN_DIR" >&2
+    if [[ -n "$best" ]]; then
+      echo "    falling back to $best (found on PATH)" >&2
+      PYTHON_BIN_DIR=""
+    else
+      exit 1
+    fi
+  fi
+fi
+
 if [[ -z "$best" ]]; then
   echo "  ! no Python 3.11+ found on PATH or in standard locations."
   echo
@@ -283,7 +362,15 @@ else
 fi
 
 # Persist the chosen interpreter so setup.sh and other tools can find it.
+# Deriving the bin dir from the final interpreter also overwrites a stale
+# .python-bin-dir left behind when we fell back to PATH above.
 echo "$PYTHON_EXE" > .python-path
+chmod 600 .python-path
+if [[ -z "$PYTHON_BIN_DIR" ]]; then
+  PYTHON_BIN_DIR="$(cd "$(dirname "$PYTHON_EXE")" && pwd -P)"
+fi
+echo "$PYTHON_BIN_DIR" > .python-bin-dir
+chmod 600 .python-bin-dir
 
 # Upgrade pip and install the project in editable mode.
 echo "  installing project (this may take a minute)"
@@ -299,6 +386,5 @@ echo "  running smoke tests"
 echo
 print_wsl_note
 echo "==> bootstrap complete"
-echo "  next: cp config.example.toml config.toml && \$EDITOR config.toml"
-echo "        export INFOBLOX_PASSWORD=infoblox"
+echo "  next: ./scripts/setup.sh --configure"
 echo "        ./scripts/setup.sh"

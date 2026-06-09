@@ -85,12 +85,8 @@ The short version — full walkthrough in [QUICKSTART.md](QUICKSTART.md):
 git clone https://github.com/tshoush/DNSTAP2.git
 cd DNSTAP2
 
-./scripts/bootstrap.sh             # interactive — prompts for python3.11+ path, creates .venv, installs
-
-cp config.example.toml config.toml
-$EDITOR config.toml                # set receiver.advertised_host to this machine's IP
-
-export INFOBLOX_PASSWORD=infoblox  # do not commit the password
+./scripts/bootstrap.sh                # prompts for Python bin dir/path, creates .venv, installs
+./scripts/setup.sh --configure-only   # prompts for IPs, writes config + .env.dnstap2, stops
 
 ./scripts/setup.sh                 # dry-run end-to-end
 ./scripts/setup.sh --apply         # actually push the InfoBlox dnstap config
@@ -106,7 +102,9 @@ open  http://localhost:9090
 
 ## Configuration
 
-Everything is driven by `config.toml`. See `config.example.toml` for the annotated schema. The fields you almost certainly want to set:
+Everything is driven by `config.toml`. Run `./scripts/setup.sh --configure-only` to create or safely update it; existing values are shown as defaults and the previous file is backed up. (`--configure` runs the same wizard, then continues into the full setup.) Secrets entered in the wizard are written to `.env.dnstap2` with mode `0600`; setup runs and the standalone scripts both pick them up from there.
+
+See `config.example.toml` for the annotated schema. The fields you almost certainly want to set:
 
 | | |
 |---|---|

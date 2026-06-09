@@ -8,9 +8,13 @@ the corresponding TOML field is blank.
 from __future__ import annotations
 
 import os
+import re
+import shlex
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+_ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 @dataclass
@@ -84,11 +88,36 @@ class Config:
     source_path: Path = field(default=Path("config.toml"))
 
 
-def _resolve_secret(value: str, env_var: str) -> str:
-    """Return `value` if non-empty, else os.environ.get(env_var, '')."""
+def _env_file_values(path: Path) -> dict[str, str]:
+    """Parse `export NAME='value'` lines from .env.dnstap2 (written by
+    scripts/configure_local_settings.py) so tools that are not launched via
+    setup.sh still see the stored secrets."""
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        try:
+            parts = shlex.split(stripped, comments=True, posix=True)
+        except ValueError:
+            continue
+        if parts and parts[0] == "export":
+            parts = parts[1:]
+        if len(parts) != 1 or "=" not in parts[0]:
+            continue
+        name, _, value = parts[0].partition("=")
+        if _ENV_NAME_RE.match(name):
+            values[name] = value
+    return values
+
+
+def _resolve_secret(value: str, env_var: str, env_file: dict[str, str] | None = None) -> str:
+    """Return `value` if non-empty, else the env var, else the env-file value."""
     if value:
         return value
-    return os.environ.get(env_var, "")
+    return os.environ.get(env_var) or (env_file or {}).get(env_var, "")
 
 
 def load(path: str | Path = "config.toml") -> Config:
@@ -105,10 +134,14 @@ def load(path: str | Path = "config.toml") -> Config:
     if "host" not in ib_raw or "username" not in ib_raw:
         raise ValueError("config.toml [infoblox] must define host and username")
 
+    env_file = _env_file_values(
+        Path(os.environ.get("DNSTAP2_ENV_FILE") or p.resolve().parent / ".env.dnstap2")
+    )
+
     infoblox = InfobloxConfig(
         host=ib_raw["host"],
         username=ib_raw["username"],
-        password=_resolve_secret(ib_raw.get("password", ""), "INFOBLOX_PASSWORD"),
+        password=_resolve_secret(ib_raw.get("password", ""), "INFOBLOX_PASSWORD", env_file),
         wapi_version=ib_raw.get("wapi_version", "v2.13.7"),
         verify_tls=bool(ib_raw.get("verify_tls", False)),
         timeout=int(ib_raw.get("timeout", 10)),
@@ -122,7 +155,7 @@ def load(path: str | Path = "config.toml") -> Config:
     splunk = SplunkConfig(
         enabled=bool(sp_raw.get("enabled", False)),
         hec_url=sp_raw.get("hec_url", ""),
-        hec_token=_resolve_secret(sp_raw.get("hec_token", ""), "SPLUNK_HEC_TOKEN"),
+        hec_token=_resolve_secret(sp_raw.get("hec_token", ""), "SPLUNK_HEC_TOKEN", env_file),
         index=sp_raw.get("index", "dns_dnstap"),
         sourcetype=sp_raw.get("sourcetype", "dnstap:json"),
         source=sp_raw.get("source", "vector-dnstap"),

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -12,6 +13,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.lib import config as cfgmod  # noqa: E402
 from scripts.lib.render import render  # noqa: E402
+
+# Top-level prometheus.yml sections this renderer owns. Anything else found in
+# an existing file (rule_files/alerting from install_alertmanager.sh,
+# remote_write, ...) is preserved verbatim and re-appended.
+OWNED_TOP_LEVEL = {"global", "scrape_configs"}
+
+
+def _preserved_sections(existing: str) -> str:
+    kept: list[str] = []
+    keep = False
+    for line in existing.splitlines():
+        match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*):", line)
+        if match:
+            keep = match.group(1) not in OWNED_TOP_LEVEL
+        if keep:
+            kept.append(line)
+    return "\n".join(kept).strip("\n")
 
 
 def _vector_metrics_target(metrics_listen: str) -> str:
@@ -30,6 +48,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", default="config.toml")
     parser.add_argument("--template", default=None)
     parser.add_argument("--output", default="-")
+    parser.add_argument(
+        "--existing",
+        default=None,
+        help="existing prometheus.yml to preserve unowned sections from "
+        "(defaults to --output when writing to a file; pass explicitly when piping to sudo tee)",
+    )
     args = parser.parse_args(argv)
 
     cfg = cfgmod.load(args.config)
@@ -48,6 +72,13 @@ def main(argv: list[str] | None = None) -> int:
             ),
         },
     )
+
+    existing_path = args.existing or (args.output if args.output != "-" else None)
+    if existing_path and Path(existing_path).exists():
+        preserved = _preserved_sections(Path(existing_path).read_text(encoding="utf-8"))
+        if preserved:
+            rendered = rendered.rstrip("\n") + "\n\n" + preserved + "\n"
+            print(f"preserved existing sections from {existing_path}", file=sys.stderr)
 
     if args.output == "-":
         sys.stdout.write(rendered)

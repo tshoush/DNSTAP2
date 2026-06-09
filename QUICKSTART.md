@@ -23,19 +23,22 @@ What you get at the end:
 ```bash
 git clone https://github.com/tshoush/DNSTAP2.git
 cd DNSTAP2
-./scripts/bootstrap.sh             # interactive — prompts for Python 3.11+ path
-cp config.example.toml config.toml
+./scripts/bootstrap.sh                # interactive — prompts for Python 3.11+ path
+./scripts/setup.sh --configure-only   # prompts for IPs and local settings, saves, and stops
 ```
 
 `bootstrap.sh` will:
 - Detect your OS (and WSL2 / systemd version / glibc).
 - Find candidate Python binaries on PATH and at well-known install locations.
-- Show you the best candidate and let you accept it (Enter) or type a different path.
+- Ask for the Python binary directory, then show the best candidate and let you accept it (Enter) or type a different path.
 - Validate that it is Python 3.11+ and that the `venv` module is available.
 - Create `.venv/` and install the project.
+- Write `.python-path` and `.python-bin-dir` with mode `0600`.
 - Run the test suite to prove the bootstrap worked.
 
-Then edit `config.toml` and set:
+The wizard prompts for the InfoBlox Grid Master, WAPI user/password, receiver advertised IP, receiver/listen ports, Python binary directory, Prometheus/Vector addresses, and optional Splunk settings. It writes `config.toml` and `.env.dnstap2` with mode `0600`; reruns use the existing values as defaults and create timestamped backups before changing files. `--configure-only` stops after saving (use it here, before the platform-specific overrides below); `--configure` runs the same wizard and then continues straight into the full setup — connectivity check, Vector/Prometheus installs, and config rendering.
+
+The receiver advertised IP is the IP of this host as the grid master will see it:
 
 ```toml
 [receiver]
@@ -45,14 +48,7 @@ advertised_host = "192.168.1.50"      # ← THIS host's IP as the grid master wi
 host = "192.168.1.224"                # pre-set
 username = "admin"                     # pre-set
 ```
-
-Set the password via environment (do not commit it):
-
-```bash
-export INFOBLOX_PASSWORD=infoblox
-```
-
-For Splunk forwarding: set `[splunk].enabled = true` and `export SPLUNK_HEC_TOKEN=...`.
+For automated runs, keep `.env.dnstap2` beside the repo or provide the same variables through the environment. Do not commit `config.toml` or `.env.dnstap2`.
 
 ---
 
@@ -79,7 +75,7 @@ make -j"$(nproc)" && sudo make altinstall
 
 ### 2. Run the common steps from section 0 above
 
-When `bootstrap.sh` prompts for the Python path, accept the default (`/usr/bin/python3.11` if you used IUS, `/usr/local/bin/python3.11` if you built from source).
+When `bootstrap.sh` prompts for the Python binary directory, use `/usr/bin` if you installed IUS Python or `/usr/local/bin` if you built from source. Then accept the detected Python executable.
 
 ### 3. Install and configure
 
@@ -319,7 +315,7 @@ PY
 | `vector: error while loading shared libraries: libc.so.6: version 'GLIBC_2.28' not found` | gnu build on RHEL 7 | Should not happen — `install_vector.py` auto-picks musl. Re-run with `--force`. |
 | `Failed to parse unit file: Unknown lvalue 'StateDirectory'` | systemd too old | Should not happen — unit is downgraded for systemd < 235. Re-run `install_vector.py`. |
 | WSL2: InfoBlox cannot connect to receiver | WSL VM not reachable from LAN | Configure mirrored networking or `netsh portproxy` (Section [WSL2](#wsl2)) |
-| `check_infoblox.py` HTTP 401 | wrong creds | `export INFOBLOX_PASSWORD=...`; re-check WAPI user |
+| `check_infoblox.py` HTTP 401 | wrong creds | Re-run `./scripts/setup.sh --configure-only` and update the password, or export `INFOBLOX_PASSWORD=...` |
 | `check_infoblox.py` 0 dnstap fields | NIOS build doesn't expose dnstap via WAPI | Enable in Grid Manager UI, or upgrade NIOS |
 | Vector starts but `events.jsonl` stays empty | InfoBlox not pointed at this host, or firewall | Check `receiver.advertised_host`; allow inbound TCP/6000 from grid master |
 | Prometheus target shows `down` | metrics port not listening | `curl localhost:9598/metrics`; check `journalctl -u vector` |

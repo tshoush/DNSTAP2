@@ -56,8 +56,10 @@ poc-results/
 
 # Local config with secrets — only the example is committed
 config.toml
+config.toml.bak.*
 !config.example.toml
 .python-path
+.python-bin-dir
 
 # Downloaded binaries
 /vendor/

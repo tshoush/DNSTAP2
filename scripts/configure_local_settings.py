@@ -1,0 +1,287 @@
+#!/usr/bin/env python3
+"""Safely update local DNSTAP2 config and automation environment files."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import shutil
+import sys
+import tempfile
+import tomllib
+from datetime import date, datetime, time
+from pathlib import Path
+from typing import Any
+
+SECTION_ORDER = ["infoblox", "receiver", "vector", "prometheus", "splunk", "dnstap"]
+KEY_ORDER = {
+    "infoblox": ["host", "username", "password", "wapi_version", "verify_tls", "timeout"],
+    "receiver": ["listen_host", "listen_port", "mode", "advertised_host", "advertised_port"],
+    "vector": ["version", "install_prefix", "config_path", "data_dir", "metrics_listen", "jsonl_path"],
+    "prometheus": ["version", "install_prefix", "config_path", "data_dir", "listen", "scrape_interval"],
+    "splunk": ["enabled", "hec_url", "hec_token", "index", "sourcetype", "source", "verify_tls"],
+    "dnstap": [
+        "client_queries",
+        "client_responses",
+        "resolver_queries",
+        "resolver_responses",
+        "auth_queries",
+        "auth_responses",
+    ],
+}
+ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _load_toml(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    with path.open("rb") as fp:
+        return tomllib.load(fp)
+
+
+def _merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _lookup(data: dict[str, Any], dotted: str) -> Any:
+    cur: Any = data
+    for part in dotted.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return None
+        cur = cur[part]
+    return cur
+
+
+def _coerce(raw: str, current: Any) -> Any:
+    if isinstance(current, bool):
+        normalized = raw.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off"}:
+            return False
+        raise ValueError(f"cannot parse boolean value: {raw!r}")
+    if isinstance(current, int) and not isinstance(current, bool):
+        return int(raw)
+    if isinstance(current, float):
+        return float(raw)
+    if current is None:
+        # Key unknown to both config and example defaults: infer the type so
+        # e.g. "false" or "6001" don't end up as TOML strings downstream.
+        normalized = raw.strip().lower()
+        if normalized in {"true", "false"}:
+            return normalized == "true"
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+        try:
+            return float(raw)
+        except ValueError:
+            pass
+    return raw
+
+
+def _set_dotted(data: dict[str, Any], dotted: str, raw_value: str, defaults: dict[str, Any]) -> None:
+    parts = dotted.split(".")
+    if len(parts) != 2 or not all(parts):
+        raise ValueError(f"expected section.key setting, got {dotted!r}")
+    current = _lookup(data, dotted)
+    if current is None:
+        current = _lookup(defaults, dotted)
+    value = _coerce(raw_value, current)
+    section, key = parts
+    data.setdefault(section, {})
+    if not isinstance(data[section], dict):
+        raise ValueError(f"{section!r} is not a TOML table")
+    data[section][key] = value
+
+
+def _toml_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+    if isinstance(value, str):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    raise ValueError(f"unsupported TOML value type: {type(value).__name__}")
+
+
+def _ordered_keys(section: str, values: dict[str, Any]) -> list[str]:
+    ordered = [key for key in KEY_ORDER.get(section, []) if key in values]
+    ordered.extend(key for key in values if key not in ordered)
+    return ordered
+
+
+def _emit_table(name: str, table: dict[str, Any], lines: list[str]) -> None:
+    lines.append(f"[{name}]")
+    nested: list[tuple[str, dict[str, Any]]] = []
+    for key in _ordered_keys(name, table):
+        value = table[key]
+        if isinstance(value, dict):
+            nested.append((key, value))
+        else:
+            lines.append(f"{key} = {_toml_value(value)}")
+    for key, sub in nested:
+        lines.append("")
+        _emit_table(f"{name}.{key}", sub, lines)
+
+
+def _dump_toml(data: dict[str, Any]) -> str:
+    lines = [
+        "# DNSTAP2 local configuration.",
+        "# Generated by scripts/setup.sh --configure. config.toml is gitignored.",
+        "# Secrets should stay in .env.dnstap2 or environment variables, not here.",
+        "",
+    ]
+    root_scalars = [key for key in data if not isinstance(data[key], dict)]
+    for key in root_scalars:
+        lines.append(f"{key} = {_toml_value(data[key])}")
+    if root_scalars:
+        lines.append("")
+    sections = [section for section in SECTION_ORDER if isinstance(data.get(section), dict)]
+    sections.extend(section for section in data if section not in sections and isinstance(data[section], dict))
+    for index, section in enumerate(sections):
+        if index:
+            lines.append("")
+        _emit_table(section, data[section], lines)
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _backup_existing(path: Path) -> None:
+    if not path.exists():
+        return
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    backup = path.with_name(f"{path.name}.bak.{stamp}")
+    shutil.copy2(path, backup)
+    os.chmod(backup, 0o600)
+
+
+def _atomic_write_private(path: Path, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fp:
+            fp.write(body)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+        os.chmod(path, 0o600)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
+def _parse_assignment(raw: str) -> tuple[str, str]:
+    name, sep, value = raw.partition("=")
+    if not sep or not ENV_NAME_RE.match(name):
+        raise ValueError(f"expected NAME=value assignment, got {raw!r}")
+    return name, value
+
+
+def _shell_quote(value: str) -> str:
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+ENV_ASSIGN_RE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=")
+
+
+def _write_env_file(path: Path, assignments: list[str]) -> bool:
+    """Update assignments in place, leaving comments and unmanaged lines alone."""
+    updates: dict[str, str] = {}
+    for raw in assignments:
+        name, value = _parse_assignment(raw)
+        if value == "":  # blank means "keep whatever is there"
+            continue
+        updates[name] = value
+    if not updates:
+        return False
+
+    if path.exists():
+        lines = path.read_text(encoding="utf-8").splitlines()
+    else:
+        lines = [
+            "# DNSTAP2 local automation environment.",
+            "# Generated by scripts/setup.sh --configure. Keep this file mode 0600.",
+        ]
+
+    changed = False
+    seen: set[str] = set()
+    out: list[str] = []
+    for line in lines:
+        match = ENV_ASSIGN_RE.match(line)
+        name = match.group(1) if match else None
+        if name in updates:
+            new_line = f"export {name}={_shell_quote(updates[name])}"
+            seen.add(name)
+            if new_line != line:
+                changed = True
+            out.append(new_line)
+        else:
+            out.append(line)
+    for name in sorted(set(updates) - seen):
+        out.append(f"export {name}={_shell_quote(updates[name])}")
+        changed = True
+
+    if not changed:
+        return False
+    _backup_existing(path)
+    _atomic_write_private(path, "\n".join(out) + "\n")
+    return True
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", default="config.toml")
+    parser.add_argument("--example", default="config.example.toml")
+    parser.add_argument("--env-file", default=".env.dnstap2")
+    parser.add_argument("--set", action="append", default=[], metavar="SECTION.KEY=VALUE")
+    parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE")
+    parser.add_argument("--secret", action="append", default=[], metavar="NAME=VALUE")
+    args = parser.parse_args(argv)
+
+    config_path = Path(args.config)
+    defaults = _load_toml(Path(args.example))
+    current = _load_toml(config_path)
+    data = _merge(defaults, current)
+
+    for raw in args.set:
+        key, sep, value = raw.partition("=")
+        if not sep:
+            raise SystemExit(f"expected SECTION.KEY=VALUE, got {raw!r}")
+        _set_dotted(data, key, value, defaults)
+
+    if args.set:
+        _backup_existing(config_path)
+        _atomic_write_private(config_path, _dump_toml(data))
+        print(f"wrote {config_path} (mode 0600)")
+
+    env_assignments = [*args.env, *args.secret]
+    if env_assignments:
+        env_path = Path(args.env_file)
+        if _write_env_file(env_path, env_assignments):
+            print(f"wrote {env_path} (mode 0600)")
+
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (OSError, ValueError) as exc:
+        print(f"configure_local_settings: {exc}", file=sys.stderr)
+        raise SystemExit(1)
