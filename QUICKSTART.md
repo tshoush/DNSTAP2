@@ -50,6 +50,8 @@ username = "admin"                     # pre-set
 ```
 For automated runs, keep `.env.dnstap2` beside the repo or provide the same variables through the environment. Do not commit `config.toml` or `.env.dnstap2`.
 
+> **Behind a TLS-intercepting proxy?** `setup.sh` points Python at the system CA bundle automatically and probes HTTPS before downloading; if verification still fails it falls back to unverified downloads (tarballs remain SHA256-checked). Force that mode with `./scripts/setup.sh --insecure`.
+
 ---
 
 ## RHEL 7.9 / CentOS 7
@@ -84,6 +86,8 @@ When `bootstrap.sh` prompts for the Python binary directory, use `/usr/bin` if y
 ./scripts/setup.sh --apply        # apply WAPI changes
 ```
 
+> ⚠️ **NIOS streams dnstap to ONE receiver.** `--apply` points the grid's dnstap target at *this* box — any existing receiver stops getting the stream. To run a second receiver alongside an existing one, skip `--apply` here and see [Adding a second receiver box](#adding-a-second-receiver-box).
+
 Expected platform output:
 
 ```
@@ -105,6 +109,44 @@ sudo systemctl enable --now vector prometheus
 systemctl status vector --no-pager
 journalctl -u vector -n 50 --no-pager
 ```
+
+---
+
+## Adding a second receiver box
+
+To stand up another RHEL 7.9 receiver next to an existing one (e.g. a new box alongside `192.168.1.50`):
+
+1. On the **new** box: follow the RHEL 7.9 steps above (Python 3.11 → `bootstrap.sh` → `setup.sh --configure-only` with the new box's IP as the advertised host → `setup.sh` **without** `--apply`). Everything installs and renders; the box just has no dnstap feed yet.
+2. Choose how it gets the stream:
+   - **Repoint the grid** — run `./scripts/setup.sh --apply` on the new box. NIOS now streams there and the old receiver goes dark.
+   - **Tee from the existing receiver** — keep NIOS pointed at the old box and have its DNS-collector forward a copy. On the old box, add an output pipeline to `/etc/dnscollector/config.yml` and route to it:
+
+     ```yaml
+     # under the tap pipeline's routing-policy:
+     #   forward: [ metrics, lokiout, fileout, syslogout, newboxout ]
+       - name: newboxout
+         dnstapclient:
+           transport: tcp
+           remote-address: "<new-box-ip>"
+           remote-port: 6000
+     ```
+
+     Validate and restart: `dnscollector -config /etc/dnscollector/config.yml -test-config && sudo systemctl restart dnscollector`. (This is the same mechanism the lab uses to feed Vector on `127.0.0.1:6000` from the single NIOS stream.)
+3. Verify on the new box: `ss -tnp | grep :6000` shows the inbound connection, then `curl -s localhost:9598/metrics | grep dnstap_`.
+
+---
+
+## Alternative receiver: DNS-collector + full observability stack
+
+Instead of (or next to) the Vector path, the standalone bash installers need no Python or `config.toml`:
+
+```bash
+sudo ./scripts/install_dnscollector_receiver.sh   # DNS-collector dnstap receiver on :6001, metrics on :9599
+sudo ./scripts/install_stack.sh                   # Loki + Prometheus + Grafana + Alertmanager in one shot
+./scripts/run_demo.sh --minutes 10                # synthetic dnstap traffic to light up the dashboards
+```
+
+Dashboards live in `grafana/`; the port matrix for firewall requests is in `docs/ports.md`.
 
 ---
 
