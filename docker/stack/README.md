@@ -46,7 +46,7 @@ Use the repo's synthetic generator from the host to fire frames at `:6001`:
 
 ```bash
 # from the repo root, on the host
-python scripts/dnstap_synth.py --tcp 127.0.0.1:6001
+python scripts/dnstap_synth.py --target 127.0.0.1:6001
 ```
 
 Metrics should appear at `http://<host>:9090` (query `dnscollector_*`) and the

@@ -14,7 +14,7 @@ production (native, no-Docker) pipeline see the repo-root `../QUICKSTART.md`.
   `pyproject.toml`. Always pass `-f docker/<file> .`.
 
 ```bash
-cd /home/tmsho448/DNSTAP2
+cd DNSTAP2                    # the cloned repo root
 ```
 
 ## 1. Pick your image
@@ -48,7 +48,7 @@ DNS server (or the synthetic generator below) at `host:6000`.
 In a second terminal, drive the listener with the repo's synthetic generator:
 
 ```bash
-python scripts/dnstap_synth.py --tcp 127.0.0.1:6000
+python scripts/dnstap_synth.py --target 127.0.0.1:6000
 ```
 
 You should see decoded events scrolling in the container's stdout.

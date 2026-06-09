@@ -31,13 +31,14 @@ Both build from the **repo root** (the build context needs `src/` and
 
 ```bash
 # from the repo root
-cd /home/tmsho448/DNSTAP2
+cd DNSTAP2                    # the cloned repo root
 
 # macOS dev image
 docker build -f docker/Dockerfile.mac -t dnstap2:mac .
 docker run --rm -p 6000:6000 dnstap2:mac --tcp 0.0.0.0:6000 --sink stdout
 
 # RHEL 7.9 image (first build is slow — it compiles OpenSSL + CPython)
+# On Apple Silicon add --platform linux/amd64 (UBI 7 has no arm64 image)
 docker build -f docker/Dockerfile.rhel7.9 -t dnstap2:rhel7.9 .
 docker run --rm -p 6000:6000 dnstap2:rhel7.9 --tcp 0.0.0.0:6000 --sink stdout
 ```

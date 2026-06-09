@@ -9,7 +9,7 @@ Loki + Grafana. For the multi-container version see `../stack/QUICKSTART.md`.
 - Build from the **repo root** so the build context is `docker/allinone`.
 
 ```bash
-cd /home/tmsho448/DNSTAP2     # repo root
+cd DNSTAP2                    # the cloned repo root
 ```
 
 ## 1. Build
@@ -26,7 +26,7 @@ Grafana) — give it a minute.
 
 ```bash
 docker run -d --name dnstap2 \
-    -p 6001:6001 -p 3000:3000 -p 9090:9090 -p 3100:3100 \
+    -p 6001:6001 -p 3000:3000 -p 9090:9090 -p 3100:3100 -p 9599:9599 \
     dnstap2-allinone
 
 docker logs -f dnstap2        # Ctrl-C to stop tailing; container keeps running
@@ -53,7 +53,7 @@ sources** Prometheus and Loki are already provisioned.
 From the host, fire synthetic frames at the receiver port:
 
 ```bash
-python scripts/dnstap_synth.py --tcp 127.0.0.1:6001
+python scripts/dnstap_synth.py --target 127.0.0.1:6001
 ```
 
 Within ~15s (one scrape interval) the **DNS-collector Overview** dashboard
