@@ -55,6 +55,7 @@ def test_render_vector_config_includes_dnstap_source(tmp_path: Path) -> None:
     assert 'type = "dnstap"' in out
     assert 'address = "0.0.0.0:6000"' in out
     assert "[transforms.dnstap_enriched]" in out
+    assert "[transforms.dnstap_nios_syslog]" in out
     assert "[transforms.dnstap_metrics]" in out
     assert "[sinks.prom_exporter]" in out
     assert 'address = "0.0.0.0:9598"' in out
@@ -89,6 +90,10 @@ def test_render_vector_config_splunk_enabled(tmp_path: Path) -> None:
     out = _run([sys.executable, "scripts/render_vector_config.py", "--config", str(cfg_path)])
     assert "[sinks.splunk_hec]" in out
     assert "splunk.example.com" in out
+    # Splunk receives NIOS-style syslog text lines, not JSON events.
+    splunk_block = out[out.index("[sinks.splunk_hec]"):]
+    assert 'inputs = ["dnstap_nios_syslog"]' in splunk_block
+    assert 'encoding.codec = "text"' in splunk_block
 
 
 def test_render_prometheus_config_scrape_target(tmp_path: Path) -> None:

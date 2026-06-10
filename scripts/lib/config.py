@@ -62,7 +62,7 @@ class SplunkConfig:
     hec_url: str = ""
     hec_token: str = ""
     index: str = "dns_dnstap"
-    sourcetype: str = "dnstap:json"
+    sourcetype: str = "infoblox:dns"
     source: str = "vector-dnstap"
     verify_tls: bool = True
 
@@ -157,7 +157,7 @@ def load(path: str | Path = "config.toml") -> Config:
         hec_url=sp_raw.get("hec_url", ""),
         hec_token=_resolve_secret(sp_raw.get("hec_token", ""), "SPLUNK_HEC_TOKEN", env_file),
         index=sp_raw.get("index", "dns_dnstap"),
-        sourcetype=sp_raw.get("sourcetype", "dnstap:json"),
+        sourcetype=sp_raw.get("sourcetype", "infoblox:dns"),
         source=sp_raw.get("source", "vector-dnstap"),
         verify_tls=bool(sp_raw.get("verify_tls", True)),
     )

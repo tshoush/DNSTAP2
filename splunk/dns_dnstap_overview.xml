@@ -1,0 +1,290 @@
+<form version="1.1">
+  <label>DNS dnstap Overview</label>
+  <description>Always-on DNS query/response telemetry from InfoBlox via dnstap. Click a server slice or a client bar to filter every panel; reset with "All servers" or a * in Client IP.</description>
+  <fieldset submitButton="false">
+    <input type="time" token="tspan" searchWhenChanged="true">
+      <label>Time range</label>
+      <default>
+        <earliest>-60m@m</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="dropdown" token="span" searchWhenChanged="true">
+      <label>Granularity</label>
+      <choice value="10s">10 seconds</choice>
+      <choice value="30s">30 seconds</choice>
+      <choice value="1m">1 minute</choice>
+      <choice value="5m">5 minutes</choice>
+      <default>1m</default>
+    </input>
+    <input type="text" token="client" searchWhenChanged="true">
+      <label>Client IP (* = all)</label>
+      <default>*</default>
+    </input>
+    <input type="dropdown" token="identity" searchWhenChanged="true">
+      <label>DNS server</label>
+      <choice value="*">All servers</choice>
+      <default>*</default>
+      <fieldForLabel>dnstap.identity</fieldForLabel>
+      <fieldForValue>dnstap.identity</fieldForValue>
+      <search>
+        <query>index=dns_dnstap sourcetype="dnscollector:json" | stats count by dnstap.identity | sort dnstap.identity</query>
+        <earliest>$tspan.earliest$</earliest>
+        <latest>$tspan.latest$</latest>
+      </search>
+    </input>
+  </fieldset>
+  <row>
+    <panel>
+      <title>Events by DNS server (click to filter all panels)</title>
+      <chart>
+        <search>
+          <query>index=dns_dnstap sourcetype="dnscollector:json" | stats count by dnstap.identity</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">pie</option>
+        <drilldown>
+          <set token="form.identity">$click.value$</set>
+        </drilldown>
+      </chart>
+    </panel>
+    <panel>
+      <title>Avg QPS (client queries)</title>
+      <single>
+        <search>
+          <query>index=dns_dnstap sourcetype="dnscollector:json" dnstap.identity=$identity$ dnstap.operation=CLIENT_QUERY | stats count earliest(_time) as t0 latest(_time) as t1 | eval QPS=round(count/max(t1-t0,1),2) | fields QPS</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0.00</option>
+        <option name="useColors">1</option>
+        <option name="colorMode">block</option>
+        <option name="rangeColors">["0x53a051","0x53a051"]</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Cache hit % (response latency &lt; 2ms)</title>
+      <single>
+        <search>
+          <query>index=dns_dnstap sourcetype="dnscollector:json" dnstap.identity=$identity$ dnstap.operation=CLIENT_RESPONSE dnstap.latency&gt;0 | stats count(eval('dnstap.latency'&lt;0.002)) as hits count as total | eval cache_hit_pct=if(total>0, round(100*hits/total,1), 0) | fields cache_hit_pct</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0.0</option>
+        <option name="unit">%</option>
+        <option name="useColors">1</option>
+        <option name="colorMode">block</option>
+        <option name="rangeColors">["0xdc4e41","0xf8be34","0x53a051"]</option>
+        <option name="rangeValues">[50,80]</option>
+      </single>
+    </panel>
+    <panel>
+      <title>NXDOMAIN responses</title>
+      <single>
+        <search>
+          <query>index=dns_dnstap sourcetype="dnscollector:json" dnstap.identity=$identity$ dnstap.operation=CLIENT_RESPONSE dns.rcode=NXDOMAIN | stats count</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="useColors">1</option>
+        <option name="colorMode">block</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[1,100]</option>
+      </single>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Query rate (QPS, $span$ buckets)</title>
+      <chart>
+        <search>
+          <query>index=dns_dnstap sourcetype="dnscollector:json" dnstap.identity=$identity$ dnstap.operation=CLIENT_QUERY | timechart span=$span$ count by dnstap.identity | foreach * [eval &lt;&lt;FIELD&gt;&gt;=round('&lt;&lt;FIELD&gt;&gt;'/_span,2)] | fields - _span</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">queries/sec</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Responses by rcode (NXDOMAIN, NOERROR, ...)</title>
+      <chart>
+        <search>
+          <query>index=dns_dnstap sourcetype="dnscollector:json" dnstap.identity=$identity$ dnstap.operation=CLIENT_RESPONSE | timechart span=$span$ count by dns.rcode</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.fieldColors">{"NXDOMAIN":"#dc4e41","NOERROR":"#53a051","SERVFAIL":"#f8be34"}</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Resolution latency (cache hits ~0.3ms, misses 30ms+)</title>
+      <chart>
+        <search>
+          <query>index=dns_dnstap sourcetype="dnscollector:json" dnstap.identity=$identity$ dnstap.operation=CLIENT_RESPONSE dnstap.latency&gt;0 | timechart span=$span$ avg(dnstap.latency) as avg_s p95(dnstap.latency) as p95_s | eval avg_ms=round(avg_s*1000,2), p95_ms=round(p95_s*1000,2) | fields _time avg_ms p95_ms</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">ms</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Top $topn_domains$ domains searched</title>
+      <input type="dropdown" token="topn_domains" searchWhenChanged="true">
+        <label>Top</label>
+        <choice value="5">5</choice>
+        <choice value="10">10</choice>
+        <choice value="20">20</choice>
+        <choice value="50">50</choice>
+        <default>10</default>
+      </input>
+      <chart>
+        <search>
+          <query>index=dns_dnstap sourcetype="dnscollector:json" dnstap.identity=$identity$ dnstap.operation=CLIENT_QUERY | top limit=$topn_domains$ dns.qname showperc=false</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">bar</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Top $topn_rclients$ recursive clients (recursion-desired queries, any name/type)</title>
+      <input type="dropdown" token="topn_rclients" searchWhenChanged="true">
+        <label>Top</label>
+        <choice value="5">5</choice>
+        <choice value="10">10</choice>
+        <choice value="20">20</choice>
+        <choice value="50">50</choice>
+        <default>10</default>
+      </input>
+      <chart>
+        <search>
+          <query>index=dns_dnstap sourcetype="dnscollector:json" dnstap.identity=$identity$ dnstap.operation=CLIENT_QUERY dns.flags.rd=true | top limit=$topn_rclients$ network.query-ip showperc=false</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">bar</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Top $topn_talkers$ clients by query volume — ANY query (click to isolate)</title>
+      <input type="dropdown" token="topn_talkers" searchWhenChanged="true">
+        <label>Top</label>
+        <choice value="5">5</choice>
+        <choice value="10">10</choice>
+        <choice value="20">20</choice>
+        <choice value="50">50</choice>
+        <default>10</default>
+      </input>
+      <chart>
+        <search>
+          <query>index=dns_dnstap sourcetype="dnscollector:json" dnstap.identity=$identity$ dnstap.operation=CLIENT_QUERY | top limit=$topn_talkers$ network.query-ip showperc=false</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">bar</option>
+        <option name="charting.legend.placement">none</option>
+        <drilldown>
+          <set token="form.client">$click.value$</set>
+        </drilldown>
+      </chart>
+    </panel>
+    <panel>
+      <title>Query rate by client — flood/DDoS spike view (top 5 + other)</title>
+      <chart>
+        <search>
+          <query>index=dns_dnstap sourcetype="dnscollector:json" dnstap.identity=$identity$ dnstap.operation=CLIENT_QUERY network.query-ip=$client$ | timechart span=$span$ limit=5 useother=true count by network.query-ip</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.axisTitleY.text">queries per $span$</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Rogue-client signals for $client$ — volume, name spread, NXDOMAIN ratio (click a row to isolate)</title>
+      <input type="dropdown" token="topn_rogue" searchWhenChanged="true">
+        <label>Top</label>
+        <choice value="5">5</choice>
+        <choice value="10">10</choice>
+        <choice value="20">20</choice>
+        <choice value="50">50</choice>
+        <default>10</default>
+      </input>
+      <table>
+        <search>
+          <query>index=dns_dnstap sourcetype="dnscollector:json" dnstap.identity=$identity$ dnstap.operation IN (CLIENT_QUERY, CLIENT_RESPONSE) network.query-ip=$client$ | stats count(eval('dnstap.operation'="CLIENT_QUERY")) as queries dc(dns.qname) as distinct_names count(eval('dns.rcode'="NXDOMAIN")) as nxdomains values(dnstap.identity) as dns_server by network.query-ip | eval nxdomain_pct=if(queries>0, round(100*nxdomains/queries,1), 0) | sort -queries | head $topn_rogue$ | table network.query-ip queries distinct_names nxdomains nxdomain_pct dns_server</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <drilldown>
+          <set token="form.client">$click.value$</set>
+        </drilldown>
+      </table>
+    </panel>
+    <panel>
+      <title>Top $topn_cnames$ names queried by $client$</title>
+      <input type="dropdown" token="topn_cnames" searchWhenChanged="true">
+        <label>Top</label>
+        <choice value="5">5</choice>
+        <choice value="10">10</choice>
+        <choice value="20">20</choice>
+        <choice value="50">50</choice>
+        <default>10</default>
+      </input>
+      <chart>
+        <search>
+          <query>index=dns_dnstap sourcetype="dnscollector:json" dnstap.identity=$identity$ dnstap.operation=CLIENT_QUERY network.query-ip=$client$ | top limit=$topn_cnames$ dns.qname showperc=false</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">bar</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Top $topn_nx$ NXDOMAIN names (possible typos / DGA / misconfig)</title>
+      <input type="dropdown" token="topn_nx" searchWhenChanged="true">
+        <label>Top</label>
+        <choice value="5">5</choice>
+        <choice value="10">10</choice>
+        <choice value="20">20</choice>
+        <choice value="50">50</choice>
+        <default>10</default>
+      </input>
+      <table>
+        <search>
+          <query>index=dns_dnstap sourcetype="dnscollector:json" dnstap.identity=$identity$ network.query-ip=$client$ dnstap.operation=CLIENT_RESPONSE dns.rcode=NXDOMAIN | stats count by dnstap.identity, dns.qname, network.query-ip | sort -count | head $topn_nx$</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+      </table>
+    </panel>
+  </row>
+</form>

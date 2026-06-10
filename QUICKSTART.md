@@ -150,6 +150,32 @@ Dashboards live in `grafana/`; the port matrix for firewall requests is in `docs
 
 ---
 
+## Splunk: two feeds, two formats (they coexist)
+
+Both receivers can ship to Splunk at the same time; pick one or both. Events are
+distinguished by sourcetype, so existing dashboards keep working:
+
+| Feed | Format | Sourcetype | Enable with |
+|---|---|---|---|
+| Vector → HEC | **NIOS-style syslog lines** — same text InfoBlox emits with DNS query/response logging, so dashboards built for InfoBlox syslog need no rewrite | `infoblox:dns` | `[splunk]` in `config.toml` (Python path) or `SPLUNK_HEC_URL`/`SPLUNK_HEC_TOKEN` env (`install_dnstap_receiver.sh`) |
+| DNS-collector → raw TCP | **flat-json** — one JSON object per line, machine-friendly fields (`dns.qname`, `dnstap.operation`, …) | `dnscollector:json` | `SPLUNK_TCP_ADDR=<host>:<port>` env (`install_dnscollector_receiver.sh`) |
+
+Splunk side: the HEC feed needs a HEC token; the TCP feed needs a raw TCP input
+whose sourcetype breaks events per line (`SHOULD_LINEMERGE=false`,
+`LINE_BREAKER=([\r\n]+)`, `KV_MODE=json`). Example searches:
+`index=dns_dnstap sourcetype="infoblox:dns"` and
+`index=dns_dnstap sourcetype="dnscollector:json" | stats count by dns.qname`.
+
+A ready-made overview dashboard (QPS, top domains, top recursive clients,
+cache-hit %, NXDOMAIN, latency) is in `splunk/dns_dnstap_overview.xml` — POST it
+to `/servicesNS/admin/search/data/ui/views` (name `dns_dnstap_overview`).
+Cache-hit is derived from response latency (&lt;2ms = answered from cache):
+NIOS dnstap only emits client query/response events, so resolver-ratio math is
+not possible; the DNS-collector `latency` transform must be enabled (the
+installer does this).
+
+---
+
 ## RHEL 8 / 9, Rocky, Alma, Fedora
 
 ### 1. Install Python 3.11

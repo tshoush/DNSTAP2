@@ -18,6 +18,11 @@
 #   LISTEN_PORT    dnstap frame-streams port  (default 6000)
 #   METRICS_PORT   Prometheus exporter port   (default 9598)
 #   JSONL_PATH     decoded-events archive     (default /var/log/dnstap/events.jsonl)
+#   SPLUNK_HEC_URL Splunk HEC endpoint, e.g. https://splunk:8088/services/collector/event
+#                  (default "" = no Splunk sink); events are sent as NIOS-style
+#                  syslog query/response log lines, sourcetype infoblox:dns
+#   SPLUNK_HEC_TOKEN / SPLUNK_INDEX (dns_dnstap) / SPLUNK_SOURCETYPE (infoblox:dns)
+#   SPLUNK_VERIFY_TLS (true)
 set -euo pipefail
 
 VECTOR_VERSION="${VECTOR_VERSION:-0.39.0}"
@@ -26,6 +31,11 @@ METRICS_PORT="${METRICS_PORT:-9598}"
 JSONL_PATH="${JSONL_PATH:-/var/log/dnstap/events.jsonl}"
 LOKI_URL="${LOKI_URL:-http://localhost:3100}"      # Grafana Loki (set "" to omit)
 SYSLOG_ADDR="${SYSLOG_ADDR:-127.0.0.1:514}"        # syslog/SIEM UDP target (set "" to omit)
+SPLUNK_HEC_URL="${SPLUNK_HEC_URL:-}"               # Splunk HEC endpoint (set to enable)
+SPLUNK_HEC_TOKEN="${SPLUNK_HEC_TOKEN:-}"
+SPLUNK_INDEX="${SPLUNK_INDEX:-dns_dnstap}"
+SPLUNK_SOURCETYPE="${SPLUNK_SOURCETYPE:-infoblox:dns}"
+SPLUNK_VERIFY_TLS="${SPLUNK_VERIFY_TLS:-true}"
 CONFIG=/etc/vector/vector.toml
 BIN=/usr/local/bin/vector
 
@@ -85,15 +95,42 @@ LOKI
 SYSLOG_SINK=""
 [ -n "$SYSLOG_ADDR" ] && SYSLOG_SINK="$(cat <<SYS
 
-# Sink: syslog/SIEM forward (UDP JSON). Repoint SYSLOG_ADDR at your collector.
+# Sink: syslog/SIEM forward (UDP) — NIOS-style query/response log lines, i.e.
+# what a syslog collector would receive from InfoBlox itself. Repoint
+# SYSLOG_ADDR at your collector (e.g. a Splunk syslog/UDP input).
 [sinks.syslog_out]
 type = "socket"
-inputs = ["dnstap_enriched"]
+inputs = ["dnstap_nios_syslog"]
 mode = "udp"
 address = "${SYSLOG_ADDR}"
-encoding.codec = "json"
+encoding.codec = "text"
 SYS
 )"
+SPLUNK_SINK=""
+if [ -n "$SPLUNK_HEC_URL" ]; then
+  [ -n "$SPLUNK_HEC_TOKEN" ] || { echo "ERROR: SPLUNK_HEC_URL set but SPLUNK_HEC_TOKEN is empty."; exit 1; }
+  # Vector wants the BASE URL (it appends /services/collector/... itself).
+  SPLUNK_HEC_URL="${SPLUNK_HEC_URL%/}"
+  SPLUNK_HEC_URL="${SPLUNK_HEC_URL%/services/collector/event}"
+  SPLUNK_HEC_URL="${SPLUNK_HEC_URL%/services/collector}"
+  SPLUNK_SINK="$(cat <<SPLK
+
+# Sink: Splunk HEC — NIOS-style syslog lines (same format InfoBlox emits with
+# DNS query/response logging), so existing Splunk parsing for InfoBlox DNS
+# logs (e.g. the Splunk Add-on for Infoblox) works unchanged.
+[sinks.splunk_hec]
+type = "splunk_hec_logs"
+inputs = ["dnstap_nios_syslog"]
+endpoint = "${SPLUNK_HEC_URL}"
+default_token = "${SPLUNK_HEC_TOKEN}"
+index = "${SPLUNK_INDEX}"
+sourcetype = "${SPLUNK_SOURCETYPE}"
+source = "vector-dnstap"
+tls.verify_certificate = ${SPLUNK_VERIFY_TLS}
+encoding.codec = "text"
+SPLK
+)"
+fi
 
 echo "==> Writing $CONFIG"
 cat > "$CONFIG" <<EOF
@@ -130,6 +167,62 @@ if .qtype == null { .qtype = .requestData.question[0].questionType }
 .client = .sourceAddress
 '''
 
+# Render each event as the syslog line NIOS itself emits when DNS query /
+# response logging is enabled, so downstream parsers built for InfoBlox
+# syslog (e.g. the Splunk Add-on for Infoblox, sourcetype infoblox:dns)
+# keep working unchanged:
+#   query:    <ts> <member> named[<id>]: client <ip>#<port> (<qname>): query: <qname> IN <type> + (<server-ip>)
+#   response: <ts> <member> named[<id>]: client <ip>#<port> (<qname>): UDP: query: <qname> IN <type> response: NOERROR +A <rr>; <rr>;
+# <member> comes from the dnstap identity (serverId); named[<id>] carries the
+# DNS message id (dnstap has no daemon pid). Flags: + recursion desired,
+# A authoritative answer, T truncated, D DNSSEC-validated (AD bit).
+[transforms.dnstap_nios_syslog]
+type = "remap"
+inputs = ["dnstap_enriched"]
+source = '''
+# Vector 0.39 marks format_timestamp fallible even with now(), so \`??\` with a
+# format_timestamp fallback is E103 there — capture the error instead.
+fmt = "%b %e %H:%M:%S"
+syslog_ts, ts_err = format_timestamp(.timestamp, fmt)
+if ts_err != null { syslog_ts = format_timestamp!(now(), fmt) }
+host = to_string(.serverId) ?? ""
+if host == "" { host = "infoblox" }
+client = to_string(.sourceAddress) ?? "0.0.0.0"
+cport  = to_string(.sourcePort) ?? "0"
+server = to_string(.responseAddress) ?? ""
+proto  = upcase(to_string(.socketProtocol) ?? "UDP")
+qname  = to_string(.qname) ?? "."
+if length(qname) > 1 && ends_with(qname, ".") {
+    qname = slice!(qname, 0, length(qname) - 1)   # BIND prints qname without the root dot
+}
+qclass = .responseData.question[0].class
+if qclass == null { qclass = .requestData.question[0].class }
+qclass = to_string(qclass) ?? "IN"
+qtype  = to_string(.qtype) ?? ""
+
+if .rcode != null {   # only responses carry an rcode
+    flags = "-"
+    if .responseData.header.rd == true { flags = "+" }
+    if .responseData.header.aa == true { flags = flags + "A" }
+    if .responseData.header.tc == true { flags = flags + "T" }
+    if .responseData.header.ad == true { flags = flags + "D" }
+    rcode = upcase(to_string(.rcode) ?? "NOERROR")   # NoError -> NOERROR (BIND spelling)
+    rrs = ""
+    if is_array(.responseData.answers) {
+        for_each(array!(.responseData.answers)) -> |_i, rr| {
+            rrs = rrs + " " + (to_string(rr.domainName) ?? "") + " " + (to_string(rr.ttl) ?? "0") + " " + (to_string(rr.class) ?? "IN") + " " + (to_string(rr.recordType) ?? "") + " " + (to_string(rr.rData) ?? "") + ";"
+        }
+    }
+    pid = to_string(.responseData.header.id) ?? "0"
+    .message = syslog_ts + " " + host + " named[" + pid + "]: client " + client + "#" + cport + " (" + qname + "): " + proto + ": query: " + qname + " " + qclass + " " + qtype + " response: " + rcode + " " + flags + rrs
+} else {
+    flags = "-"
+    if .requestData.header.rd == true { flags = "+" }
+    pid = to_string(.requestData.header.id) ?? "0"
+    .message = syslog_ts + " " + host + " named[" + pid + "]: client " + client + "#" + cport + " (" + qname + "): query: " + qname + " " + qclass + " " + qtype + " " + flags + " (" + server + ")"
+}
+'''
+
 # Per-query Prometheus counters.
 [transforms.dnstap_metrics]
 type = "log_to_metric"
@@ -164,6 +257,7 @@ path = "${JSONL_PATH}"
 encoding.codec = "json"
 ${LOKI_SINK}
 ${SYSLOG_SINK}
+${SPLUNK_SINK}
 EOF
 chown vector:vector "$CONFIG"
 

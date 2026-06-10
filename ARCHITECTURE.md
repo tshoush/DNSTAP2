@@ -113,7 +113,11 @@ All four behaviors are exercised in `tests/test_platform_info.py` against hand-c
 5. Three sinks fire in parallel:
    - `prometheus_exporter` → exposes `/metrics` on `:9598`.
    - `file` → JSONL append to `/var/log/dnstap/events.jsonl` (local archive, lab forensics).
-   - `splunk_hec` (optional) → Splunk HEC for production audit.
+   - `splunk_hec` (optional) → Splunk HEC for production audit. Events are
+     rendered by the `dnstap_nios_syslog` remap into the same syslog line
+     format NIOS emits with native DNS query/response logging (sourcetype
+     `infoblox:dns`), so existing Splunk parsing/dashboards for InfoBlox
+     syslog keep working. The `syslog_out` UDP sink sends the same lines.
 6. **Prometheus** scrapes Vector every 15 s. Operators query / alert from there.
 
 ## 5. InfoBlox configuration approach

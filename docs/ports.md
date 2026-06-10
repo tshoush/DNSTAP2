@@ -51,6 +51,15 @@ Companion machine-readable file: [`ports.csv`](ports.csv).
 | Member `.222` ↔ Grid Master `.224` | — | UDP 123 | NTP grid time sync | standard |
 | Monitoring (optional) | `.222` / `.224` | UDP 161 / 162 | SNMP poll / traps | standard |
 
+## 4. Splunk (lab: Docker container `dnstap2-splunk` on the Mac `.100`)
+
+| Source | Destination | Proto/Port | Purpose | Status |
+|---|---|---|---|---|
+| Receiver `.50` (Vector) | Splunk host | TCP 8088 | HEC — NIOS-syslog feed (sourcetype `infoblox:dns`) | verified |
+| Receiver `.50` (DNS-collector) | Splunk host | TCP 1514 | Raw TCP input — flat-json feed (sourcetype `dnscollector:json`) | verified |
+| Admin browser | Splunk host | TCP 8000 | Splunk Web UI (dashboard `dns_dnstap_overview`) | verified |
+| Admin / automation | Splunk host | TCP 8089 | Splunk REST management API | verified |
+
 ## Hardening recommendations
 
 - **Tighten the internal stack to loopback.** `9598, 9599, 9090, 3100, 9093` only

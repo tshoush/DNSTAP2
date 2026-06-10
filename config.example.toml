@@ -56,12 +56,17 @@ scrape_interval = "15s"
 [splunk]
 # Optional. If enabled, Vector forwards events to Splunk HEC in parallel
 # with the local JSONL archive and the Prometheus metrics path.
+# Events are sent as NIOS-style syslog text lines — the same format InfoBlox
+# emits with DNS query/response logging — so existing Splunk parsing for
+# InfoBlox DNS logs (e.g. the Splunk Add-on for Infoblox) works unchanged.
 enabled = false
-hec_url = "https://splunk.example.com:8088/services/collector/event"
+# Base URL of the HEC endpoint (a trailing /services/collector[/event] path is
+# tolerated and stripped — Vector appends the collector path itself).
+hec_url = "https://splunk.example.com:8088"
 # Token — leave blank and set SPLUNK_HEC_TOKEN env var instead.
 hec_token = ""
 index = "dns_dnstap"
-sourcetype = "dnstap:json"
+sourcetype = "infoblox:dns"
 source = "vector-dnstap"
 verify_tls = true
 

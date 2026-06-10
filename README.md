@@ -114,6 +114,17 @@ See `config.example.toml` for the annotated schema. The fields you almost certai
 | `receiver.advertised_host` | IP of THIS host as reachable from the grid master |
 | `splunk.enabled` / `SPLUNK_HEC_TOKEN` | flip to `true` and set the token to enable HEC sink |
 
+### Splunk: two feeds, two formats
+
+Events reach Splunk in the **same syslog format InfoBlox emits with native DNS
+query/response logging** (sourcetype `infoblox:dns`, via Vector HEC), so
+dashboards built for InfoBlox syslog need no rewrite. A parallel **flat-json**
+feed (sourcetype `dnscollector:json`, via DNS-collector → raw TCP) provides
+machine-friendly fields. Both can run at once; see the table in
+[QUICKSTART.md](QUICKSTART.md#splunk-two-feeds-two-formats). A ready-made
+overview dashboard (QPS, top domains, rogue-client/DDoS hunting, cache-hit %,
+NXDOMAIN, latency) ships in [`splunk/dns_dnstap_overview.xml`](splunk/dns_dnstap_overview.xml).
+
 ## Verifying it works
 
 ```bash

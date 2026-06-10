@@ -27,15 +27,29 @@ encoding.codec = "json"
 SPLUNK_BLOCK = '''
 [sinks.splunk_hec]
 type = "splunk_hec_logs"
-inputs = ["dnstap_enriched"]
+# NIOS-style syslog lines (see transforms.dnstap_nios_syslog) so Splunk sees
+# the same format InfoBlox DNS query/response logging produces; pair with
+# sourcetype infoblox:dns for the Splunk Add-on for Infoblox.
+inputs = ["dnstap_nios_syslog"]
 endpoint = "{hec_url}"
 default_token = "{hec_token}"
 index = "{index}"
 sourcetype = "{sourcetype}"
 source = "{source}"
 tls.verify_certificate = {verify_tls}
-encoding.codec = "json"
+encoding.codec = "text"
 '''
+
+
+def _splunk_endpoint(hec_url: str) -> str:
+    """Vector's splunk_hec_logs wants the BASE URL and appends the collector
+    path itself; accept either form in config.toml and strip the path here."""
+    url = hec_url.rstrip("/")
+    for suffix in ("/services/collector/event", "/services/collector"):
+        if url.endswith(suffix):
+            url = url[: -len(suffix)]
+            break
+    return url
 
 
 def _splunk_block(c: cfgmod.SplunkConfig) -> str:
@@ -47,7 +61,7 @@ def _splunk_block(c: cfgmod.SplunkConfig) -> str:
             "(set SPLUNK_HEC_TOKEN env var)."
         )
     return SPLUNK_BLOCK.format(
-        hec_url=c.hec_url,
+        hec_url=_splunk_endpoint(c.hec_url),
         hec_token=c.hec_token,
         index=c.index,
         sourcetype=c.sourcetype,

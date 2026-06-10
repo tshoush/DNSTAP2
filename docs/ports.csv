@@ -18,3 +18,7 @@ NIOS grid,Member 192.168.1.222,Grid Master 192.168.1.224,TCP,2114,Grid communica
 NIOS grid,Member 192.168.1.222,Grid Master 192.168.1.224,UDP,123,NTP grid time sync,inter-appliance,standard
 NIOS monitoring,Monitoring (optional),NIOS 192.168.1.222 / 192.168.1.224,UDP,161,SNMP poll,LAN/monitoring,standard
 NIOS monitoring,NIOS 192.168.1.222 / 192.168.1.224,Monitoring (optional),UDP,162,SNMP traps,LAN/monitoring,standard
+Splunk,Receiver 192.168.1.50 (Vector),Splunk host (lab: Mac .100),TCP,8088,HEC NIOS-syslog feed (sourcetype infoblox:dns),LAN,verified
+Splunk,Receiver 192.168.1.50 (DNS-collector),Splunk host (lab: Mac .100),TCP,1514,Raw TCP flat-json feed (sourcetype dnscollector:json),LAN,verified
+Splunk,Admin browser,Splunk host (lab: Mac .100),TCP,8000,Splunk Web UI,LAN,verified
+Splunk,Admin / automation,Splunk host (lab: Mac .100),TCP,8089,Splunk REST management API,LAN,verified
