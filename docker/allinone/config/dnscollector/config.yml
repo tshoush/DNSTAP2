@@ -16,8 +16,17 @@ pipelines:
     transforms:
       normalize:
         qname-lowercase: true
+      # Pair each response with its query and stamp dnstap.latency (seconds).
+      # Cache hits answer in <2ms, so latency is the cache-hit proxy when the
+      # DNS server only emits client-side dnstap (NIOS exposes only
+      # enable_dnstap_queries/responses — no RESOLVER_* events).
+      latency:
+        enable: true
+        measure-latency: true
+        unanswered-queries: true
+        queries-timeout: 5
     routing-policy:
-      forward: [ metrics, lokiout, fileout ]
+      forward: [ metrics, lokiout, fileout ]   # append splunkout to enable the Splunk feed
       dropped: [ ]
 
   # ---- output: Prometheus metrics (dnscollector_* on :9599) ----
@@ -42,3 +51,19 @@ pipelines:
       mode: flat-json
       max-size: 100
       max-files: 5
+
+  # ---- output (optional): Splunk flat-json feed ----
+  # One JSON event per line to a Splunk raw TCP input; pair with a line-broken
+  # sourcetype like dnscollector:json (SHOULD_LINEMERGE=false, KV_MODE=json).
+  # For NIOS-style syslog lines in Splunk use Vector's SPLUNK_HEC_* feed instead
+  # (scripts/install_dnstap_receiver.sh) — see QUICKSTART "Splunk: two feeds".
+  # Enable: uncomment and append splunkout to routing-policy.forward above.
+  # - name: splunkout
+  #   tcpclient:
+  #     transport: tcp
+  #     remote-address: "host.docker.internal"   # or your Splunk host
+  #     remote-port: 1514
+  #     connect-timeout: 5
+  #     retry-interval: 10
+  #     flush-interval: 2
+  #     mode: flat-json
