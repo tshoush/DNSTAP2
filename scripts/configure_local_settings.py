@@ -18,8 +18,12 @@ SECTION_ORDER = ["infoblox", "receiver", "vector", "prometheus", "splunk", "dnst
 KEY_ORDER = {
     "infoblox": ["host", "username", "password", "wapi_version", "verify_tls", "timeout"],
     "receiver": ["listen_host", "listen_port", "mode", "advertised_host", "advertised_port"],
-    "vector": ["version", "install_prefix", "config_path", "data_dir", "metrics_listen", "jsonl_path"],
-    "prometheus": ["version", "install_prefix", "config_path", "data_dir", "listen", "scrape_interval"],
+    "vector": [
+        "version", "install_prefix", "config_path", "data_dir", "metrics_listen", "jsonl_path",
+    ],
+    "prometheus": [
+        "version", "install_prefix", "config_path", "data_dir", "listen", "scrape_interval",
+    ],
     "splunk": ["enabled", "hec_url", "hec_token", "index", "sourcetype", "source", "verify_tls"],
     "dnstap": [
         "client_queries",
@@ -88,7 +92,9 @@ def _coerce(raw: str, current: Any) -> Any:
     return raw
 
 
-def _set_dotted(data: dict[str, Any], dotted: str, raw_value: str, defaults: dict[str, Any]) -> None:
+def _set_dotted(
+    data: dict[str, Any], dotted: str, raw_value: str, defaults: dict[str, Any]
+) -> None:
     parts = dotted.split(".")
     if len(parts) != 2 or not all(parts):
         raise ValueError(f"expected section.key setting, got {dotted!r}")
@@ -153,7 +159,10 @@ def _dump_toml(data: dict[str, Any]) -> str:
     if root_scalars:
         lines.append("")
     sections = [section for section in SECTION_ORDER if isinstance(data.get(section), dict)]
-    sections.extend(section for section in data if section not in sections and isinstance(data[section], dict))
+    sections.extend(
+        section for section in data
+        if section not in sections and isinstance(data[section], dict)
+    )
     for index, section in enumerate(sections):
         if index:
             lines.append("")
@@ -284,4 +293,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except (OSError, ValueError) as exc:
         print(f"configure_local_settings: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from exc
