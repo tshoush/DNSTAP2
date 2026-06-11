@@ -64,3 +64,6 @@ config.toml.bak.*
 # Downloaded binaries
 /vendor/
 /dist_bins/
+
+# VM appliances / large downloads
+/gh/
