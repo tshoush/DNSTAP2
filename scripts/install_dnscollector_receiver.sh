@@ -27,7 +27,12 @@ LISTEN_PORT="${LISTEN_PORT:-6001}"          # dnstap frame-streams (Vector uses 
 PROM_PORT="${PROM_PORT:-9599}"              # Prometheus metrics (Vector uses 9598)
 TOP_N="${TOP_N:-50}"                        # depth of top-domains/top-requesters gauges (dashboard topk reads up to this)
 LOKI_URL="${LOKI_URL:-http://localhost:3100/loki/api/v1/push}"
+# Syslog forward to Splunk. Point SYSLOG_ADDR at your Splunk syslog data input or
+# Splunk Connect for Syslog (SC4S) host:port — NOT the HEC endpoint (syslog needs
+# no HEC token). Default stays localhost so re-running without config is harmless.
 SYSLOG_ADDR="${SYSLOG_ADDR:-127.0.0.1:514}"
+SYSLOG_TRANSPORT="${SYSLOG_TRANSPORT:-tcp}"   # tcp (reliable, recommended) | udp | tcp+tls
+SYSLOG_FRAMER="${SYSLOG_FRAMER:-rfc5425}"     # rfc5425 = octet-counting (use with tcp/tcp+tls); set to none for udp
 # host:port of a Splunk raw TCP input — set to enable the flat-json Splunk feed
 # (one JSON event per line; pair with a line-broken sourcetype like
 # dnscollector:json). For NIOS-style syslog lines in Splunk use Vector's
@@ -150,13 +155,23 @@ pipelines:
       mode: flat-json
       max-size: 100
       max-files: 5
-  # ---- output: syslog/SIEM forward (UDP) ----
+  # ---- output: syslog forward to Splunk (TCP, RFC5424, octet-framed) ----
+  # flat-json payload carries dnstap.identity = the originating DNS server's
+  # dnstap identity, so events from MULTIPLE NIOS members stay distinguishable
+  # in Splunk. Map dnstap.identity -> host on the Splunk side (props/SC4S) if you
+  # want per-source hosts; the value is present in every event regardless.
   - name: syslogout
     syslog:
-      transport: udp
+      transport: ${SYSLOG_TRANSPORT}
       remote-address: "${SYSLOG_ADDR}"
       mode: flat-json
       formatter: rfc5424
+      framer: ${SYSLOG_FRAMER}
+      app-name: "dnstap"
+      tag: "dnstap"
+      retry-interval: 10
+      buffer-size: 100
+      flush-interval: 5
 ${SPLUNK_PIPELINE}
 EOF
 chown dnscollector:dnscollector "$CONFIG"
@@ -208,4 +223,7 @@ DNS-collector listening on 0.0.0.0:${LISTEN_PORT} (dnstap), metrics on :${PROM_P
 Vector is untouched on :6000 / :9598. To switch a NIOS member to DNS-collector,
 set its dnstap receiver port to ${LISTEN_PORT}. Metrics are prefixed dnscollector_*;
 Loki events carry job="dnscollector"; archive at ${JSONL_PATH}.
+Syslog -> Splunk: ${SYSLOG_TRANSPORT} ${SYSLOG_ADDR} (flat-json/rfc5424, app-name=dnstap).
+Each event carries dnstap.identity = source DNS server, so multiple NIOS members
+stay distinguishable. Set SYSLOG_ADDR to your Splunk syslog input / SC4S to go live.
 EOF
