@@ -166,6 +166,21 @@ whose sourcetype breaks events per line (`SHOULD_LINEMERGE=false`,
 `index=dns_dnstap sourcetype="infoblox:dns"` and
 `index=dns_dnstap sourcetype="dnscollector:json" | stats count by dns.qname`.
 
+### Indexer only exposes a forwarder (S2S) port? Use the UF bridge
+
+If the only open ingest port is a **splunktcp** input (e.g. the Infoblox Data
+Connector's `:8005`), raw TCP/syslog text is accepted but never indexed — only
+the Splunk-to-Splunk protocol works there. The supported route (verified
+end-to-end with indexer ACKs):
+
+```bash
+# 1. DNS-collector also writes NIOS-style query/response lines to a file
+NIOS_LOG_PATH=/var/log/dnscollector/nios.log sudo -E ./scripts/install_dnscollector_receiver.sh
+# 2. A Universal Forwarder monitors that file and speaks S2S to the indexer
+SPLUNK_IDX_ADDR=<indexer>:8005 SPLUNK_INDEX=mi_dhcp sudo -E ./scripts/install_splunk_uf.sh
+# Verify:  index=mi_dhcp source="dnstap:dnscollector" | stats count by host
+```
+
 A ready-made overview dashboard (QPS, top domains, top recursive clients,
 cache-hit %, NXDOMAIN, latency) is in `splunk/dns_dnstap_overview.xml` — POST it
 to `/servicesNS/admin/search/data/ui/views` (name `dns_dnstap_overview`).

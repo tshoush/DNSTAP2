@@ -106,7 +106,8 @@ def dns_response(qid: int, qname: str, qtype: int, rcode: int) -> bytes:
 
 
 # ── dnstap message + Dnstap wrapper ────────────────────────────────────────
-def dnstap_payload(msg_type: int, dns_wire: bytes, peer_ip: str, peer_port: int) -> bytes:
+def dnstap_payload(msg_type: int, dns_wire: bytes, peer_ip: str, peer_port: int,
+                   server_ip: str = "", identity: str = "synthetic") -> bytes:
     now = time.time()
     sec = int(now)
     nsec = int((now - sec) * 1e9)
@@ -116,6 +117,12 @@ def dnstap_payload(msg_type: int, dns_wire: bytes, peer_ip: str, peer_port: int)
     m += pb_varint(2, SOCKET_FAMILY_INET)            # socket_family
     m += pb_varint(3, SOCKET_PROTOCOL_UDP)           # socket_protocol
     m += pb_bytes(4, socket.inet_aton(peer_ip))      # query_address
+    if server_ip:
+        # response_address/port = the DNS server side; real NIOS sets these and
+        # downstream formats (e.g. the NIOS-style syslog feed) read responseip
+        # as the answering member's IP.
+        m += pb_bytes(5, socket.inet_aton(server_ip))  # response_address
+        m += pb_varint(7, 53)                          # response_port
     m += pb_varint(6, peer_port)                     # query_port
     if msg_type in QUERY_TYPES:
         m += pb_varint(8, sec)                       # query_time_sec
@@ -127,7 +134,7 @@ def dnstap_payload(msg_type: int, dns_wire: bytes, peer_ip: str, peer_port: int)
         m += pb_bytes(14, dns_wire)                  # response_message
 
     d = b""
-    d += pb_bytes(1, b"synthetic")                   # identity
+    d += pb_bytes(1, identity.encode())              # identity
     d += pb_bytes(2, b"dnstap_synth")                # version
     d += pb_bytes(14, m)                             # message
     d += pb_varint(15, DNSTAP_TYPE_MESSAGE)          # type = MESSAGE
@@ -215,6 +222,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--recursion-ratio", type=float, default=0.5,
                     help="fraction of queries that also emit a recursive RESOLVER query/response (cache miss)")
     ap.add_argument("--seed", type=int, default=None, help="RNG seed for reproducible traffic")
+    ap.add_argument("--server-ip", default="192.0.2.10",
+                    help="DNS server (NIOS member) IP placed in dnstap response_address")
+    ap.add_argument("--identity", default="synthetic",
+                    help="dnstap identity string (NIOS member name)")
     args = ap.parse_args(argv)
     if args.seed is not None:
         random.seed(args.seed)
@@ -258,8 +269,10 @@ def main(argv: list[str] | None = None) -> int:
             # client side: stub <-> server
             q = dns_query(qid, qname, qtype)
             r = dns_response(qid, qname, qtype, rcode)
-            sock.sendall(data_frame(dnstap_payload(MSG_CLIENT_QUERY, q, client_ip, client_port)))
-            sock.sendall(data_frame(dnstap_payload(MSG_CLIENT_RESPONSE, r, client_ip, client_port)))
+            sock.sendall(data_frame(dnstap_payload(
+                MSG_CLIENT_QUERY, q, client_ip, client_port, args.server_ip, args.identity)))
+            sock.sendall(data_frame(dnstap_payload(
+                MSG_CLIENT_RESPONSE, r, client_ip, client_port, args.server_ip, args.identity)))
             client_pairs += 1
 
             # recursive side: server <-> upstream authoritative (cache miss)
@@ -268,8 +281,10 @@ def main(argv: list[str] | None = None) -> int:
                 rqid = random.randint(0, 0xFFFF)
                 rq = dns_query(rqid, qname, qtype)
                 rr = dns_response(rqid, qname, qtype, rcode)
-                sock.sendall(data_frame(dnstap_payload(MSG_RESOLVER_QUERY, rq, up_ip, 53)))
-                sock.sendall(data_frame(dnstap_payload(MSG_RESOLVER_RESPONSE, rr, up_ip, 53)))
+                sock.sendall(data_frame(dnstap_payload(
+                    MSG_RESOLVER_QUERY, rq, up_ip, 53, args.server_ip, args.identity)))
+                sock.sendall(data_frame(dnstap_payload(
+                    MSG_RESOLVER_RESPONSE, rr, up_ip, 53, args.server_ip, args.identity)))
                 resolver_pairs += 1
 
             if interval:

@@ -23,6 +23,9 @@
 #                  syslog query/response log lines, sourcetype infoblox:dns
 #   SPLUNK_HEC_TOKEN / SPLUNK_INDEX (dns_dnstap) / SPLUNK_SOURCETYPE (infoblox:dns)
 #   SPLUNK_VERIFY_TLS (true)
+#   NIOS_LOG_PATH  NIOS-style lines on disk for a Splunk Universal Forwarder
+#                  (default "" = off) — the route into an S2S-only indexer
+#                  input like the Data Connector port; see install_splunk_uf.sh
 set -euo pipefail
 
 VECTOR_VERSION="${VECTOR_VERSION:-0.39.0}"
@@ -106,6 +109,22 @@ address = "${SYSLOG_ADDR}"
 encoding.codec = "text"
 SYS
 )"
+# NIOS-style lines on disk for a Splunk Universal Forwarder — the route into
+# an indexer that only exposes a splunktcp (S2S) input (raw TCP/syslog text is
+# silently discarded there and HEC is closed). Pair with install_splunk_uf.sh.
+NIOS_SINK=""
+if [ -n "${NIOS_LOG_PATH:-}" ]; then
+  NIOS_SINK="$(cat <<NIOSF
+
+# Sink: NIOS-style query/response lines for a Splunk UF to monitor.
+[sinks.nios_file]
+type = "file"
+inputs = ["dnstap_nios_syslog"]
+path = "${NIOS_LOG_PATH}"
+encoding.codec = "text"
+NIOSF
+)"
+fi
 SPLUNK_SINK=""
 if [ -n "$SPLUNK_HEC_URL" ]; then
   [ -n "$SPLUNK_HEC_TOKEN" ] || { echo "ERROR: SPLUNK_HEC_URL set but SPLUNK_HEC_TOKEN is empty."; exit 1; }
@@ -136,6 +155,9 @@ echo "==> Writing $CONFIG"
 cat > "$CONFIG" <<EOF
 # Vector — Infoblox NIOS dnstap receiver. Installed by install_dnstap_receiver.sh.
 data_dir = "/var/lib/vector"
+# Render VRL timestamps (NIOS-style syslog lines) in host-local time like NIOS
+# itself; otherwise they are UTC with no TZ marker and Splunk shifts them.
+timezone = "local"
 
 # Receive dnstap frame-streams from NIOS members.
 [sources.dnstap_in]
@@ -183,8 +205,8 @@ source = '''
 # Vector 0.39 marks format_timestamp fallible even with now(), so \`??\` with a
 # format_timestamp fallback is E103 there — capture the error instead.
 fmt = "%b %e %H:%M:%S"
-syslog_ts, ts_err = format_timestamp(.timestamp, fmt)
-if ts_err != null { syslog_ts = format_timestamp!(now(), fmt) }
+syslog_ts, ts_err = format_timestamp(.timestamp, fmt, timezone: "local")
+if ts_err != null { syslog_ts = format_timestamp!(now(), fmt, timezone: "local") }
 host = to_string(.serverId) ?? ""
 if host == "" { host = "infoblox" }
 client = to_string(.sourceAddress) ?? "0.0.0.0"
@@ -258,6 +280,7 @@ encoding.codec = "json"
 ${LOKI_SINK}
 ${SYSLOG_SINK}
 ${SPLUNK_SINK}
+${NIOS_SINK}
 EOF
 chown vector:vector "$CONFIG"
 

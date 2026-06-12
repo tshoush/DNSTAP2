@@ -2,6 +2,10 @@
 # Do not edit by hand; regenerate from config.toml + this template.
 
 data_dir = "$data_dir"
+# Render VRL timestamps (the NIOS-style syslog lines) in host-local time, like
+# NIOS itself does. Without this they render UTC with no TZ marker and Splunk
+# places the events hours in the future.
+timezone = "local"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Source: receive dnstap frames from InfoBlox.
@@ -66,9 +70,11 @@ inputs = ["dnstap_enriched"]
 source = '''
 # Vector 0.39 marks format_timestamp fallible even with now(), so `??` with a
 # format_timestamp fallback is E103 there — capture the error instead.
+# timezone: "local" renders member-local time like NIOS itself; without it the
+# line is UTC with no TZ marker and Splunk shifts events into the future.
 fmt = "%b %e %H:%M:%S"
-syslog_ts, ts_err = format_timestamp(.timestamp, fmt)
-if ts_err != null { syslog_ts = format_timestamp!(now(), fmt) }
+syslog_ts, ts_err = format_timestamp(.timestamp, fmt, timezone: "local")
+if ts_err != null { syslog_ts = format_timestamp!(now(), fmt, timezone: "local") }
 host = to_string(.serverId) ?? ""
 if host == "" { host = "infoblox" }
 client = to_string(.sourceAddress) ?? "0.0.0.0"
@@ -152,6 +158,14 @@ $jsonl_sink_block
 # Sink: Splunk HEC. Only emitted if [splunk].enabled = true in config.toml.
 # ─────────────────────────────────────────────────────────────────────────────
 $splunk_sink_block
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sink: NIOS-style lines on disk for a Splunk Universal Forwarder to monitor —
+# the route into an indexer that only exposes a splunktcp (S2S) input, where
+# raw TCP/syslog text is silently discarded and HEC is unavailable.
+# Only emitted if vector.nios_log_path is set in config.toml.
+# ─────────────────────────────────────────────────────────────────────────────
+$nios_file_sink_block
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Sink: Grafana Loki — decoded events searchable in Grafana alongside metrics.

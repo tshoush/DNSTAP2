@@ -76,6 +76,21 @@ def _jsonl_block(path: str) -> str:
     return JSONL_BLOCK.format(jsonl_path=path)
 
 
+NIOS_FILE_BLOCK = '''
+[sinks.nios_file]
+type = "file"
+inputs = ["dnstap_nios_syslog"]
+path = "{nios_log_path}"
+encoding.codec = "text"
+'''
+
+
+def _nios_file_block(path: str) -> str:
+    if not path:
+        return "# NIOS-lines file sink disabled (vector.nios_log_path is empty)."
+    return NIOS_FILE_BLOCK.format(nios_log_path=path)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="config.toml", help="path to config.toml")
@@ -104,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
             "metrics_listen": cfg.vector.metrics_listen,
             "jsonl_sink_block": _jsonl_block(cfg.vector.jsonl_path),
             "splunk_sink_block": _splunk_block(cfg.splunk),
+            "nios_file_sink_block": _nios_file_block(cfg.vector.nios_log_path),
         },
     )
 

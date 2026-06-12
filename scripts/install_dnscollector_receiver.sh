@@ -32,13 +32,33 @@ LOKI_URL="${LOKI_URL:-http://localhost:3100/loki/api/v1/push}"
 # no HEC token). Default stays localhost so re-running without config is harmless.
 SYSLOG_ADDR="${SYSLOG_ADDR:-127.0.0.1:514}"
 SYSLOG_TRANSPORT="${SYSLOG_TRANSPORT:-tcp}"   # tcp (reliable, recommended) | udp | tcp+tls
-SYSLOG_FRAMER="${SYSLOG_FRAMER:-rfc5425}"     # rfc5425 = octet-counting (use with tcp/tcp+tls); set to none for udp
+# SYSLOG_MODE=flat-json : one JSON object per event (RFC5424/octet-framed; SC4S
+#                         or a syslog data input; richest fields incl. dnstap.identity)
+# SYSLOG_MODE=nios      : NIOS named query-log lookalike text lines (RFC3164,
+#                         newline-delimited — for a Splunk *raw TCP* input feeding
+#                         the existing infoblox:dns dashboards):
+#   <ts> <host> dnstap[pid]: <server_ip> named[0]: client <ip> <port> query: <qname> IN <qtype> <op> <rcode>
+#   DNS-collector's text formatter is whitespace-tokenized, so the canonical NIOS
+#   "ip#port" token cannot be reproduced — ip/port are space-separated. server_ip
+#   comes from dnstap response_address (set by NIOS; = the answering member).
+SYSLOG_MODE="${SYSLOG_MODE:-flat-json}"
+if [ "$SYSLOG_MODE" = "nios" ]; then
+  SYSLOG_FRAMER="${SYSLOG_FRAMER:-none}"      # newline-delimited lines for Splunk raw TCP input
+else
+  SYSLOG_FRAMER="${SYSLOG_FRAMER:-rfc5425}"   # rfc5425 = octet-counting (use with tcp/tcp+tls); set to none for udp
+fi
 # host:port of a Splunk raw TCP input — set to enable the flat-json Splunk feed
 # (one JSON event per line; pair with a line-broken sourcetype like
 # dnscollector:json). For NIOS-style syslog lines in Splunk use Vector's
 # SPLUNK_HEC_* feed instead (install_dnstap_receiver.sh) — the formats coexist,
 # distinguished by sourcetype. Set "" (default) to omit.
 SPLUNK_TCP_ADDR="${SPLUNK_TCP_ADDR:-}"
+# NIOS-style text lines on disk, as input for a Splunk Universal Forwarder.
+# This is THE working route into an indexer that only exposes a splunktcp (S2S)
+# input like the Data Connector's :8005 — raw TCP/syslog text sent to such a
+# port is accepted but never indexed; a UF speaks S2S natively. Set to a path
+# (e.g. /var/log/dnscollector/nios.log) to enable; pair with install_splunk_uf.sh.
+NIOS_LOG_PATH="${NIOS_LOG_PATH:-}"
 JSONL_PATH="${JSONL_PATH:-/var/log/dnscollector/dnscollector-events.jsonl}"   # OWN dir — never touch Vector's /var/log/dnstap
 BIN=/usr/local/bin/dnscollector
 CONFIG=/etc/dnscollector/config.yml
@@ -80,6 +100,43 @@ echo "==> User + dirs"
 id dnscollector >/dev/null 2>&1 || useradd --system --no-create-home --shell /sbin/nologin dnscollector
 install -d -o dnscollector -g dnscollector /etc/dnscollector "$(dirname "$JSONL_PATH")"
 chown -R dnscollector:dnscollector "$(dirname "$JSONL_PATH")" 2>/dev/null || true
+if [ -n "$NIOS_LOG_PATH" ]; then
+  install -d -o dnscollector -g dnscollector "$(dirname "$NIOS_LOG_PATH")"
+fi
+
+# syslogout payload block — NIOS-style text lines or flat-json, per SYSLOG_MODE.
+if [ "$SYSLOG_MODE" = "nios" ]; then
+  SYSLOG_PAYLOAD="$(cat <<'NIOS'
+      mode: text
+      formatter: rfc3164
+      text-format: 'responseip {named[0]:} {client} queryip queryport {query:} qname {IN} qtype operation rcode'
+NIOS
+)"
+else
+  SYSLOG_PAYLOAD="$(cat <<'FJ'
+      mode: flat-json
+      formatter: rfc5424
+FJ
+)"
+fi
+
+# Optional NIOS-style logfile (Universal Forwarder input).
+NIOS_PIPELINE=""
+NIOS_FORWARD=""
+if [ -n "$NIOS_LOG_PATH" ]; then
+  NIOS_FORWARD=", niosfile"
+  NIOS_PIPELINE="$(cat <<NIOSF
+  # ---- output: NIOS named query-log lookalike for a Splunk UF to monitor ----
+  - name: niosfile
+    logfile:
+      file-path: "${NIOS_LOG_PATH}"
+      mode: text
+      text-format: 'timestamp-rfc3339ns responseip {named[0]:} {client} queryip queryport {query:} qname {IN} qtype operation rcode'
+      max-size: 50
+      max-files: 3
+NIOSF
+)"
+fi
 
 # Optional Splunk flat-json feed (raw TCP input on the Splunk side).
 SPLUNK_PIPELINE=""
@@ -132,7 +189,7 @@ pipelines:
         unanswered-queries: true
         queries-timeout: 5
     routing-policy:
-      forward: [ metrics, lokiout, fileout, syslogout${SPLUNK_FORWARD} ]
+      forward: [ metrics, lokiout, fileout, syslogout${SPLUNK_FORWARD}${NIOS_FORWARD} ]
       dropped: [ ]
   # ---- output: Prometheus metrics (dnscollector_* on :${PROM_PORT}) ----
   - name: metrics
@@ -155,17 +212,16 @@ pipelines:
       mode: flat-json
       max-size: 100
       max-files: 5
-  # ---- output: syslog forward to Splunk (TCP, RFC5424, octet-framed) ----
-  # flat-json payload carries dnstap.identity = the originating DNS server's
-  # dnstap identity, so events from MULTIPLE NIOS members stay distinguishable
-  # in Splunk. Map dnstap.identity -> host on the Splunk side (props/SC4S) if you
-  # want per-source hosts; the value is present in every event regardless.
+  # ---- output: syslog forward to Splunk (mode: ${SYSLOG_MODE}) ----
+  # flat-json carries dnstap.identity = the originating DNS server's dnstap
+  # identity, so events from MULTIPLE NIOS members stay distinguishable in
+  # Splunk. nios mode instead mimics NIOS named query logging; the member is
+  # identified by responseip (server_ip) inside each line.
   - name: syslogout
     syslog:
       transport: ${SYSLOG_TRANSPORT}
       remote-address: "${SYSLOG_ADDR}"
-      mode: flat-json
-      formatter: rfc5424
+${SYSLOG_PAYLOAD}
       framer: ${SYSLOG_FRAMER}
       app-name: "dnstap"
       tag: "dnstap"
@@ -173,6 +229,7 @@ pipelines:
       buffer-size: 100
       flush-interval: 5
 ${SPLUNK_PIPELINE}
+${NIOS_PIPELINE}
 EOF
 chown dnscollector:dnscollector "$CONFIG"
 
@@ -223,7 +280,8 @@ DNS-collector listening on 0.0.0.0:${LISTEN_PORT} (dnstap), metrics on :${PROM_P
 Vector is untouched on :6000 / :9598. To switch a NIOS member to DNS-collector,
 set its dnstap receiver port to ${LISTEN_PORT}. Metrics are prefixed dnscollector_*;
 Loki events carry job="dnscollector"; archive at ${JSONL_PATH}.
-Syslog -> Splunk: ${SYSLOG_TRANSPORT} ${SYSLOG_ADDR} (flat-json/rfc5424, app-name=dnstap).
-Each event carries dnstap.identity = source DNS server, so multiple NIOS members
-stay distinguishable. Set SYSLOG_ADDR to your Splunk syslog input / SC4S to go live.
+Syslog -> Splunk: ${SYSLOG_TRANSPORT} ${SYSLOG_ADDR} (mode=${SYSLOG_MODE}, app-name=dnstap).
+flat-json events carry dnstap.identity = source DNS server; nios-mode lines carry
+the member as server_ip (responseip). Set SYSLOG_ADDR to your Splunk input to go
+live, e.g.:  SYSLOG_MODE=nios SYSLOG_ADDR=172.25.15.215:8005 sudo -E ./install_dnscollector_receiver.sh
 EOF

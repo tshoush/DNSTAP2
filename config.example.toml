@@ -43,6 +43,11 @@ metrics_listen = "0.0.0.0:9598"
 # Where Vector writes a local JSONL archive of dnstap events (lab forensics
 # and offline replay). Set to "" to disable.
 jsonl_path = "/var/log/dnstap/events.jsonl"
+# NIOS-style query/response text lines for a Splunk Universal Forwarder to
+# monitor — use when the indexer only exposes an S2S (splunktcp) input such as
+# the Infoblox Data Connector port, where HEC/raw-TCP are unavailable
+# (see scripts/install_splunk_uf.sh). "" disables.
+nios_log_path = ""
 
 [prometheus]
 version = "2.53.0"

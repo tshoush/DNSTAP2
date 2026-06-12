@@ -118,6 +118,18 @@ All four behaviors are exercised in `tests/test_platform_info.py` against hand-c
      format NIOS emits with native DNS query/response logging (sourcetype
      `infoblox:dns`), so existing Splunk parsing/dashboards for InfoBlox
      syslog keep working. The `syslog_out` UDP sink sends the same lines.
+   - `nios_file` (optional, `nios_log_path` / `NIOS_LOG_PATH`) → the same
+     NIOS-style lines on disk for a **Splunk Universal Forwarder**
+     (`scripts/install_splunk_uf.sh`). This is the route when the indexer only
+     exposes a **splunktcp (S2S) forwarder input** (e.g. the Infoblox Data
+     Connector port): such ports accept any TCP connection but silently
+     discard raw text/syslog — only the S2S protocol indexes, and only a real
+     forwarder speaks it. Verified against the Marriott indexer with
+     `useACK` (indexer acknowledges blocks only after they are written to
+     disk). DNS-collector has the same option (`NIOS_LOG_PATH` in
+     `install_dnscollector_receiver.sh`); its lines are space-separated
+     (`client <ip> <port>`) because its text formatter cannot concatenate
+     tokens, while Vector's are byte-exact NIOS (`client <ip>#<port>`).
 6. **Prometheus** scrapes Vector every 15 s. Operators query / alert from there.
 
 ## 5. InfoBlox configuration approach

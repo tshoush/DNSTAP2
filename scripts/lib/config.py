@@ -44,6 +44,10 @@ class VectorConfig:
     data_dir: str = "/var/lib/vector"
     metrics_listen: str = "0.0.0.0:9598"
     jsonl_path: str = "/var/log/dnstap/events.jsonl"
+    # NIOS-style query/response text lines on disk — input for a Splunk
+    # Universal Forwarder when the indexer only exposes an S2S (splunktcp)
+    # input, where HEC/raw TCP are unavailable. "" disables the sink.
+    nios_log_path: str = ""
 
 
 @dataclass
