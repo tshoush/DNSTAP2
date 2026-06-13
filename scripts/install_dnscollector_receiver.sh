@@ -266,9 +266,28 @@ fi
 echo "==> Enable + start"
 systemctl daemon-reload
 systemctl enable dnscollector >/dev/null 2>&1 || true
-systemctl restart dnscollector
+# Clear any prior start-limit lockout: repeated restarts during install can trip
+# systemd's burst limit ("start request repeated too quickly"), after which
+# `restart` looks like it succeeds but the unit stays failed. reset-failed first.
+systemctl reset-failed dnscollector >/dev/null 2>&1 || true
+systemctl restart dnscollector || true
 sleep 5
-echo "    dnscollector: $(systemctl is-active dnscollector)"
+state="$(systemctl is-active dnscollector || true)"
+echo "    dnscollector: ${state}"
+if [ "$state" != "active" ]; then
+  echo "    !! dnscollector did not start — dumping the cause:"
+  systemctl --no-pager -l status dnscollector 2>&1 | sed 's/^/      /' | tail -12 || true
+  echo "      ---- journal (last 20) ----"
+  journalctl -u dnscollector --no-pager 2>&1 | tail -20 | sed 's/^/      /' || true
+  if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce 2>/dev/null)" = "Enforcing" ]; then
+    echo "      ---- SELinux is Enforcing; recent denials for dnscollector ----"
+    ausearch -m avc -ts recent 2>/dev/null | grep -i dnscollector | tail -5 | sed 's/^/      /' || true
+    echo "      (if denied: 'restorecon -Rv $(dirname "$JSONL_PATH")' and re-run, or set the"
+    echo "       binary/log contexts; as a last resort 'setenforce 0' to confirm the cause.)"
+  fi
+  echo "    Config validated OK above, so this is an environment issue (perms/SELinux/port), not the YAML."
+  exit 1
+fi
 for i in $(seq 1 15); do
   code=$(curl -s -m3 -o /dev/null -w "%{http_code}" "http://127.0.0.1:${PROM_PORT}/metrics" 2>/dev/null || true)
   [ "$code" = "200" ] && break; sleep 2

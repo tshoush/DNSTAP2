@@ -81,9 +81,18 @@ run env SPLUNK_IDX_ADDR="$SPLUNK_IDX_ADDR" SPLUNK_INDEX="$SPLUNK_INDEX" \
 # ── 4. Verify the plumbing ──────────────────────────────────────────────────
 echo "==> Verify"
 fail=0
-systemctl is-active --quiet dnscollector \
-  && echo "    OK: dnscollector service active" \
-  || { echo "    FAIL: dnscollector not active"; fail=1; }
+if systemctl is-active --quiet dnscollector; then
+  echo "    OK: dnscollector service active"
+else
+  echo "    FAIL: dnscollector not active — cause:"
+  systemctl --no-pager -l status dnscollector 2>&1 | sed 's/^/      /' | tail -10 || true
+  journalctl -u dnscollector --no-pager 2>&1 | tail -15 | sed 's/^/      /' || true
+  echo "      Try: sudo systemctl reset-failed dnscollector && sudo systemctl restart dnscollector"
+  if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce 2>/dev/null)" = "Enforcing" ]; then
+    echo "      SELinux Enforcing — check: sudo ausearch -m avc -ts recent | grep dnscollector"
+  fi
+  fail=1
+fi
 ss -ltn 2>/dev/null | grep -q ':6001 ' \
   && echo "    OK: dnstap listener on :6001" \
   || { echo "    FAIL: nothing listening on :6001"; fail=1; }
