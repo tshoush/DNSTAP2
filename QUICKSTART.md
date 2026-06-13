@@ -181,6 +181,9 @@ SPLUNK_IDX_ADDR=<indexer>:8005 SPLUNK_INDEX=mi_dhcp sudo -E ./scripts/install_sp
 # Verify:  index=mi_dhcp source="dnstap:dnscollector" | stats count by host
 ```
 
+Or run it all in one shot (git pull → both installers → verify → simulated
+traffic → prints the Splunk search): `sudo -E ./scripts/poc_splunk_bringup.sh`
+
 A ready-made overview dashboard (QPS, top domains, top recursive clients,
 cache-hit %, NXDOMAIN, latency) is in `splunk/dns_dnstap_overview.xml` — POST it
 to `/servicesNS/admin/search/data/ui/views` (name `dns_dnstap_overview`).

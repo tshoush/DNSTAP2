@@ -19,14 +19,16 @@ Examples:
     python3 scripts/dnstap_synth.py --recursion-ratio 0.7 --rate 60
     python3 scripts/dnstap_synth.py --count 100 --rate 200          # quick burst
 """
-from __future__ import annotations
-
+# NOTE: keep this script Python 3.6 compatible (RHEL 7.9 stock python3) —
+# no `from __future__ import annotations`, no builtin generics (list[...]),
+# no `X | None` unions. The POC box runs it against the local receiver.
 import argparse
 import random
 import socket
 import struct
 import sys
 import time
+from typing import List, Optional
 
 # ── Frame Streams (fstrm) control frame types ──────────────────────────────
 CONTROL_ACCEPT = 0x01
@@ -146,7 +148,7 @@ def data_frame(payload: bytes) -> bytes:
     return struct.pack(">I", len(payload)) + payload
 
 
-def control_frame(ctype: int, content_type: bytes | None = None) -> bytes:
+def control_frame(ctype: int, content_type: Optional[bytes] = None) -> bytes:
     p = struct.pack(">I", ctype)
     if content_type is not None:
         p += struct.pack(">I", FIELD_CONTENT_TYPE)
@@ -176,7 +178,7 @@ def read_control(sock: socket.socket) -> int:
 
 # ── traffic shape ──────────────────────────────────────────────────────────
 # Weighted so a handful of names dominate -> a meaningful "Top domains" panel.
-WEIGHTED_DOMAINS: list[tuple[str, int]] = [
+WEIGHTED_DOMAINS = [  # (qname, weight)
     ("www.google.com", 100),
     ("login.microsoftonline.com", 85),
     ("teams.microsoft.com", 70),
@@ -202,7 +204,7 @@ RCODES = [0, 0, 0, 0, 0, 0, 0, 3, 3, 2]
 # Weighted client IPs: a few heavy requesters + a long random tail, so the
 # "Top clients" panel shows a real ranking. These are the stub clients whose
 # cache-miss queries drive the server's recursive (RESOLVER) lookups.
-WEIGHTED_CLIENTS: list[tuple[str, int]] = [
+WEIGHTED_CLIENTS = [  # (client_ip, weight)
     ("192.168.10.21", 100), ("192.168.10.55", 78), ("192.168.20.13", 60),
     ("192.168.30.7", 48), ("192.168.10.99", 36), ("192.168.40.2", 28),
     ("192.168.20.41", 22), ("192.168.50.5", 16), ("192.168.30.88", 11),
@@ -212,7 +214,7 @@ CLIENTS = [c for c, _ in WEIGHTED_CLIENTS]
 CLIENT_WEIGHTS = [w for _, w in WEIGHTED_CLIENTS]
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--target", default="127.0.0.1:6001", help="host:port of the dnstap receiver")
