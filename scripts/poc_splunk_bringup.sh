@@ -21,6 +21,12 @@
 #   SIM_PAIRS        simulated query/response pairs (default 50)
 #   SIM_IDENTITY     simulated member name    (default <hostname>-sim)
 #   SIM_SERVER_IP    simulated member IP      (default this host's primary IP)
+#   RECEIVER         dnscollector | vector | both  (default dnscollector)
+#                    which receiver(s) to install/feed. "both" runs them side
+#                    by side (DNS-collector :6001, Vector :6000) into the same
+#                    index, distinguished by source=dnstap:dnscollector vs
+#                    source=dnstap:vector.
+#   VECTOR_NIOS_LOG_PATH  Vector's NIOS-lines file  (default /var/log/dnstap/nios.log)
 #   SKIP_PULL        1 = don't git pull first (default 0)
 #   DRY_RUN          1 = print the steps without executing them
 set -euo pipefail
@@ -28,6 +34,14 @@ set -euo pipefail
 SPLUNK_IDX_ADDR="${SPLUNK_IDX_ADDR:-172.25.15.215:8005}"
 SPLUNK_INDEX="${SPLUNK_INDEX:-mi_dhcp}"
 NIOS_LOG_PATH="${NIOS_LOG_PATH:-/var/log/dnscollector/nios.log}"
+VECTOR_NIOS_LOG_PATH="${VECTOR_NIOS_LOG_PATH:-/var/log/dnstap/nios.log}"
+RECEIVER="${RECEIVER:-dnscollector}"
+case "$RECEIVER" in
+  dnscollector) WANT_DC=1; WANT_VEC=0 ;;
+  vector)       WANT_DC=0; WANT_VEC=1 ;;
+  both)         WANT_DC=1; WANT_VEC=1 ;;
+  *) echo "ERROR: RECEIVER must be dnscollector | vector | both (got '$RECEIVER')."; exit 1 ;;
+esac
 SIMULATE="${SIMULATE:-1}"
 SIM_PAIRS="${SIM_PAIRS:-50}"
 SIM_IDENTITY="${SIM_IDENTITY:-$(hostname -s)-sim}"
@@ -61,41 +75,57 @@ if [ "$SKIP_PULL" != "1" ] && [ -z "${BRINGUP_PULLED:-}" ]; then
   fi
 fi
 
+echo "==> Receivers: ${RECEIVER}"
+
 # Known gotcha: dnscollector crash-loops if its Loki output can't connect.
-if ! curl -s -m 3 -o /dev/null http://localhost:3100/ready 2>/dev/null; then
+if [ "$WANT_DC" = "1" ] && ! curl -s -m 3 -o /dev/null http://localhost:3100/ready 2>/dev/null; then
   echo "    ! WARNING: Loki (:3100) not responding — dnscollector may crash-loop."
   echo "      Bring the stack up first (scripts/install_stack.sh) or restart Loki."
 fi
 
-# ── 2. DNS-collector with the NIOS-lines feed ──────────────────────────────
-echo "==> DNS-collector (dnstap :6001 + NIOS file ${NIOS_LOG_PATH})"
-run env NIOS_LOG_PATH="$NIOS_LOG_PATH" bash "$SCRIPT_DIR/install_dnscollector_receiver.sh"
+# ── 2. Receiver(s) with the NIOS-lines feed ────────────────────────────────
+if [ "$WANT_DC" = "1" ]; then
+  echo "==> DNS-collector (dnstap :6001 + NIOS file ${NIOS_LOG_PATH})"
+  run env NIOS_LOG_PATH="$NIOS_LOG_PATH" bash "$SCRIPT_DIR/install_dnscollector_receiver.sh"
+fi
+if [ "$WANT_VEC" = "1" ]; then
+  echo "==> Vector (dnstap :6000 + NIOS file ${VECTOR_NIOS_LOG_PATH})"
+  run env NIOS_LOG_PATH="$VECTOR_NIOS_LOG_PATH" bash "$SCRIPT_DIR/install_dnstap_receiver.sh"
+fi
 
 # ── 3. Splunk Universal Forwarder (S2S to the indexer) ─────────────────────
-echo "==> Splunk UF (monitor ${NIOS_LOG_PATH} -> S2S ${SPLUNK_IDX_ADDR})"
+echo "==> Splunk UF (S2S ${SPLUNK_IDX_ADDR})"
+UF_NIOS=""; UF_VEC=""
+[ "$WANT_DC" = "1" ] && UF_NIOS="$NIOS_LOG_PATH"
+[ "$WANT_VEC" = "1" ] && UF_VEC="$VECTOR_NIOS_LOG_PATH"
 run env SPLUNK_IDX_ADDR="$SPLUNK_IDX_ADDR" SPLUNK_INDEX="$SPLUNK_INDEX" \
-    NIOS_LOG_PATH="$NIOS_LOG_PATH" bash "$SCRIPT_DIR/install_splunk_uf.sh"
+    NIOS_LOG_PATH="$UF_NIOS" VECTOR_NIOS_LOG_PATH="$UF_VEC" \
+    bash "$SCRIPT_DIR/install_splunk_uf.sh"
 
 [ "$DRY_RUN" = "1" ] && { echo "DRY: verification + simulation skipped"; exit 0; }
 
 # ── 4. Verify the plumbing ──────────────────────────────────────────────────
 echo "==> Verify"
 fail=0
-if systemctl is-active --quiet dnscollector; then
-  echo "    OK: dnscollector service active"
-else
-  echo "    FAIL: dnscollector not active — cause:"
-  systemctl --no-pager -l status dnscollector 2>&1 | sed 's/^/      /' | tail -10 || true
-  journalctl -u dnscollector --no-pager 2>&1 | tail -15 | sed 's/^/      /' || true
-  echo "      Try: sudo systemctl reset-failed dnscollector && sudo systemctl restart dnscollector"
-  if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce 2>/dev/null)" = "Enforcing" ]; then
-    echo "      SELinux Enforcing — check: sudo ausearch -m avc -ts recent | grep dnscollector"
+check_svc() {  # $1=service $2=port $3=selinux-grep-term
+  if systemctl is-active --quiet "$1"; then
+    echo "    OK: $1 service active"
+  else
+    echo "    FAIL: $1 not active — cause:"
+    systemctl --no-pager -l status "$1" 2>&1 | sed 's/^/      /' | tail -10 || true
+    journalctl -u "$1" --no-pager 2>&1 | tail -15 | sed 's/^/      /' || true
+    echo "      Try: sudo systemctl reset-failed $1 && sudo systemctl restart $1"
+    if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce 2>/dev/null)" = "Enforcing" ]; then
+      echo "      SELinux Enforcing — check: sudo ausearch -m avc -ts recent | grep $3"
+    fi
+    fail=1
   fi
-  fail=1
-fi
-ss -ltn 2>/dev/null | grep -q ':6001 ' \
-  && echo "    OK: dnstap listener on :6001" \
-  || { echo "    FAIL: nothing listening on :6001"; fail=1; }
+  ss -ltn 2>/dev/null | grep -q ":$2 " \
+    && echo "    OK: dnstap listener on :$2" \
+    || { echo "    FAIL: nothing listening on :$2"; fail=1; }
+}
+[ "$WANT_DC" = "1" ] && check_svc dnscollector 6001 dnscollector
+[ "$WANT_VEC" = "1" ] && check_svc vector 6000 vector
 ok_conn=0
 for i in $(seq 1 12); do
   if grep -q "Connected to idx=${SPLUNK_IDX_ADDR}" "$UF_HOME/var/log/splunk/splunkd.log" 2>/dev/null; then
@@ -109,26 +139,24 @@ done
 [ "$fail" = "0" ] || exit 1
 
 # ── 5. Simulated DNS traffic (synthetic NIOS member) ───────────────────────
-if [ "$SIMULATE" = "1" ]; then
-  echo "==> Simulating ${SIM_PAIRS} query/response pairs (member ${SIM_IDENTITY} @ ${SIM_SERVER_IP})"
-  before=$(wc -l < "$NIOS_LOG_PATH" 2>/dev/null || echo 0)
-  # collector drops frames that arrive while its outputs are still connecting
-  sleep 3
-  python3 "$SCRIPT_DIR/dnstap_synth.py" --target 127.0.0.1:6001 \
+simulate_into() {  # $1=label $2=port $3=nios-file
+  echo "==> Simulating ${SIM_PAIRS} pairs into $1 (:$2, member ${SIM_IDENTITY} @ ${SIM_SERVER_IP})"
+  before=$(wc -l < "$3" 2>/dev/null || echo 0)
+  sleep 3   # receivers drop frames that arrive while outputs are still connecting
+  python3 "$SCRIPT_DIR/dnstap_synth.py" --target "127.0.0.1:$2" \
     --count "$SIM_PAIRS" --rate 40 \
     --server-ip "$SIM_SERVER_IP" --identity "$SIM_IDENTITY"
-  grew=0
   for i in $(seq 1 10); do
     sleep 3
-    after=$(wc -l < "$NIOS_LOG_PATH" 2>/dev/null || echo 0)
-    [ "$after" -gt "$before" ] && { grew=1; break; }
+    after=$(wc -l < "$3" 2>/dev/null || echo 0)
+    [ "$after" -gt "$before" ] && { echo "    OK: $3 +$((after - before)) lines; UF ships them within seconds"; return 0; }
   done
-  if [ "$grew" = "1" ]; then
-    echo "    OK: ${NIOS_LOG_PATH} +$((after - before)) lines; UF ships them within seconds"
-  else
-    echo "    FAIL: ${NIOS_LOG_PATH} did not grow — check: journalctl -u dnscollector -n 20"
-    exit 1
-  fi
+  echo "    FAIL: $3 did not grow — check: journalctl -u $1 -n 20"
+  return 1
+}
+if [ "$SIMULATE" = "1" ]; then
+  [ "$WANT_DC" = "1" ]  && { simulate_into dnscollector 6001 "$NIOS_LOG_PATH" || exit 1; }
+  [ "$WANT_VEC" = "1" ] && { simulate_into vector 6000 "$VECTOR_NIOS_LOG_PATH" || exit 1; }
 fi
 
 # ── 6. What to look at ──────────────────────────────────────────────────────
@@ -137,18 +165,16 @@ cat <<EOF
 DONE. This box now feeds Splunk; a real NIOS member pointed at
 $(hostname -I 2>/dev/null | awk '{print $1}'):6001 (dnstap over TCP) uses the exact same path.
 
-Verify in Splunk (last 60 min):
-  index=${SPLUNK_INDEX} source="dnstap:dnscollector" earliest=-60m
-  | rex "(?<member>\\S+)\\s+named\\["
-  | stats count by member, sourcetype
+Verify in Splunk (last 60 min) — see both receivers side by side:
+  index=${SPLUNK_INDEX} source IN ("dnstap:dnscollector","dnstap:vector") earliest=-60m
+  | stats count by source, sourcetype
 
-Expect: member=${SIM_SERVER_IP} (simulated), sourcetype=infoblox:dns,
-~$((SIM_PAIRS * 2))+ events, _raw like:
-  <ts> ${SIM_SERVER_IP} named[0]: client 10.x.x.x 40444 query: host.example.com IN A CLIENT_RESPONSE NOERROR
+Expect sourcetype=infoblox:dns, ~$((SIM_PAIRS * 2))+ events per active receiver.
+  source=dnstap:dnscollector lines: <ts> <ip> named[0]: client <ip> <port> query: ...
+  source=dnstap:vector       lines: <ts> <member> named[id]: client <ip>#<port> (...): query: ...
 
 Local health:
-  systemctl status dnscollector            # receiver
-  curl -s localhost:9599/metrics | grep dnscollector_queries_total
-  tail -2 ${NIOS_LOG_PATH}                  # NIOS-style lines
+  [ "$WANT_DC" = 1 ] && systemctl status dnscollector; curl -s localhost:9599/metrics | grep dnscollector_queries_total
+  [ "$WANT_VEC" = 1 ] && systemctl status vector;       curl -s localhost:9598/metrics | grep dnstap_queries_total
   grep 'Connected to idx' $UF_HOME/var/log/splunk/splunkd.log | tail -1
 EOF

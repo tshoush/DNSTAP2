@@ -26,8 +26,13 @@
 # Usage: sudo -E ./install_splunk_uf.sh     (RHEL 7+ x86_64; static deps only)
 set -euo pipefail
 
+# NIOS_LOG_PATH = DNS-collector's lines (source=dnstap:dnscollector).
+# VECTOR_NIOS_LOG_PATH = Vector's lines (source=dnstap:vector), optional.
+# Use `-` not `:-` so an explicitly-empty value disables that monitor
+# (e.g. Vector-only: NIOS_LOG_PATH="" VECTOR_NIOS_LOG_PATH=/var/log/dnstap/nios.log).
 SPLUNK_IDX_ADDR="${SPLUNK_IDX_ADDR:-172.25.15.215:8005}"
-NIOS_LOG_PATH="${NIOS_LOG_PATH:-/var/log/dnscollector/nios.log}"
+NIOS_LOG_PATH="${NIOS_LOG_PATH-/var/log/dnscollector/nios.log}"
+VECTOR_NIOS_LOG_PATH="${VECTOR_NIOS_LOG_PATH-}"
 SPLUNK_INDEX="${SPLUNK_INDEX:-mi_dhcp}"
 SPLUNK_SOURCETYPE="${SPLUNK_SOURCETYPE:-infoblox:dns}"
 UF_VERSION="${UF_VERSION:-9.2.2}"
@@ -76,13 +81,31 @@ defaultGroup = mi_indexer
 server = ${SPLUNK_IDX_ADDR}
 useACK = false
 EOF
-cat > "$UF_HOME/etc/system/local/inputs.conf" <<EOF
+[ -n "$NIOS_LOG_PATH" ] || [ -n "$VECTOR_NIOS_LOG_PATH" ] || {
+  echo "ERROR: set NIOS_LOG_PATH and/or VECTOR_NIOS_LOG_PATH (nothing to monitor)."; exit 1; }
+: > "$UF_HOME/etc/system/local/inputs.conf"
+# DNS-collector monitor (source=dnstap:dnscollector)
+if [ -n "$NIOS_LOG_PATH" ]; then
+  cat >> "$UF_HOME/etc/system/local/inputs.conf" <<EOF
 [monitor://${NIOS_LOG_PATH}]
 index = ${SPLUNK_INDEX}
 sourcetype = ${SPLUNK_SOURCETYPE}
 source = dnstap:dnscollector
 disabled = false
 EOF
+fi
+# Optional Vector monitor (source=dnstap:vector) so the two receivers stay
+# distinguishable in the same index. The Vector installer writes this file.
+if [ -n "$VECTOR_NIOS_LOG_PATH" ]; then
+  cat >> "$UF_HOME/etc/system/local/inputs.conf" <<EOF
+
+[monitor://${VECTOR_NIOS_LOG_PATH}]
+index = ${SPLUNK_INDEX}
+sourcetype = ${SPLUNK_SOURCETYPE}
+source = dnstap:vector
+disabled = false
+EOF
+fi
 cat > "$UF_HOME/etc/system/local/server.conf" <<EOF
 [general]
 serverName = $(hostname -s)-dnstap-uf
@@ -100,10 +123,19 @@ EOF
 fi
 
 # the UF must be able to read the dnscollector-owned log dir
-NIOS_DIR="$(dirname "$NIOS_LOG_PATH")"
-install -d "$NIOS_DIR"
-usermod -a -G dnscollector splunkfwd 2>/dev/null || true
-chmod g+rx "$NIOS_DIR" 2>/dev/null || true
+if [ -n "$NIOS_LOG_PATH" ]; then
+  NIOS_DIR="$(dirname "$NIOS_LOG_PATH")"
+  install -d "$NIOS_DIR"
+  usermod -a -G dnscollector splunkfwd 2>/dev/null || true
+  chmod g+rx "$NIOS_DIR" 2>/dev/null || true
+fi
+# same for the Vector-owned dir if the second monitor is enabled
+if [ -n "$VECTOR_NIOS_LOG_PATH" ]; then
+  VEC_DIR="$(dirname "$VECTOR_NIOS_LOG_PATH")"
+  install -d "$VEC_DIR"
+  usermod -a -G vector splunkfwd 2>/dev/null || true
+  chmod g+rx "$VEC_DIR" 2>/dev/null || true
+fi
 chown -R splunkfwd:splunkfwd "$UF_HOME"
 
 echo "==> Enable boot-start (systemd) + start"

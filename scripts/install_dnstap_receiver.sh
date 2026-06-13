@@ -78,6 +78,13 @@ install -d -o vector -g vector /var/lib/vector "$(dirname "$JSONL_PATH")" /etc/v
 # Ensure the vector user owns existing state/log files (e.g. a previously
 # root-owned events.jsonl) or the file sink can't append.
 chown -R vector:vector /var/lib/vector "$(dirname "$JSONL_PATH")" 2>/dev/null || true
+# Same for the optional NIOS-lines file (UF input): a root-owned file left by
+# a prior run makes the file sink fail. Pre-create + chown the whole dir.
+if [ -n "${NIOS_LOG_PATH:-}" ]; then
+  install -d -o vector -g vector "$(dirname "$NIOS_LOG_PATH")"
+  touch "$NIOS_LOG_PATH" 2>/dev/null || true
+  chown -R vector:vector "$(dirname "$NIOS_LOG_PATH")" 2>/dev/null || true
+fi
 
 # Optional fan-out sinks (built only when the corresponding env var is set).
 LOKI_SINK=""
