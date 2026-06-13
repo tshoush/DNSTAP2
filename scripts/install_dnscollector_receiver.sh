@@ -102,6 +102,12 @@ install -d -o dnscollector -g dnscollector /etc/dnscollector "$(dirname "$JSONL_
 chown -R dnscollector:dnscollector "$(dirname "$JSONL_PATH")" 2>/dev/null || true
 if [ -n "$NIOS_LOG_PATH" ]; then
   install -d -o dnscollector -g dnscollector "$(dirname "$NIOS_LOG_PATH")"
+  # Pre-create and chown the file: a root-owned nios.log left by a prior
+  # foreground/root run makes dnscollector exit 1 ("permission denied") — the
+  # same gotcha as events.jsonl. chown the whole dir so both archives are
+  # always writable by the service user.
+  touch "$NIOS_LOG_PATH" 2>/dev/null || true
+  chown -R dnscollector:dnscollector "$(dirname "$NIOS_LOG_PATH")" 2>/dev/null || true
 fi
 
 # syslogout payload block — NIOS-style text lines or flat-json, per SYSLOG_MODE.
