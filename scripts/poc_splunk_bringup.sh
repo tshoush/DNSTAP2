@@ -52,6 +52,9 @@ DRY_RUN="${DRY_RUN:-0}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 UF_HOME=/opt/splunkforwarder
+# shellcheck source=/dev/null
+. "$SCRIPT_DIR/poc_common.sh"
+PYBIN="$(find_python "$REPO_DIR" || true)"
 
 run() { if [ "$DRY_RUN" = "1" ]; then echo "DRY: $*"; else "$@"; fi; }
 
@@ -143,7 +146,7 @@ simulate_into() {  # $1=label $2=port $3=nios-file
   echo "==> Simulating ${SIM_PAIRS} pairs into $1 (:$2, member ${SIM_IDENTITY} @ ${SIM_SERVER_IP})"
   before=$(wc -l < "$3" 2>/dev/null || echo 0)
   sleep 3   # receivers drop frames that arrive while outputs are still connecting
-  python3 "$SCRIPT_DIR/dnstap_synth.py" --target "127.0.0.1:$2" \
+  "${PYBIN:-python3}" "$SCRIPT_DIR/dnstap_synth.py" --target "127.0.0.1:$2" \
     --count "$SIM_PAIRS" --rate 40 \
     --server-ip "$SIM_SERVER_IP" --identity "$SIM_IDENTITY"
   for i in $(seq 1 10); do

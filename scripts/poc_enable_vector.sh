@@ -42,6 +42,9 @@ UF_HOME=/opt/splunkforwarder
 
 [ "$(id -u)" -eq 0 ] || { echo "ERROR: run as root (sudo -E)."; exit 1; }
 mkdir -p "$REPORT_DIR"
+# shellcheck source=/dev/null
+. "$SCRIPT_DIR/poc_common.sh"
+PYBIN="$(find_python "$REPO_DIR" || true)"
 
 # Tee everything (this script's stdout+stderr, including the installers' output)
 # into the report so a single pushed file shows the full run.
@@ -105,18 +108,26 @@ fi
 sec "STEP 3: simulate $SIM_PAIRS pairs into Vector (:6000, member $SIM_SERVER_IP)"
 before=$(wc -l < "$VECTOR_NIOS_LOG_PATH" 2>/dev/null || echo 0)
 sleep 3   # Vector drops frames that arrive while sinks are still connecting
-python3 "$SCRIPT_DIR/dnstap_synth.py" --target 127.0.0.1:6000 \
-  --count "$SIM_PAIRS" --rate 40 \
-  --server-ip "$SIM_SERVER_IP" --identity "$SIM_IDENTITY" 2>&1 | sed 's/^/  /'
+if [ -z "$PYBIN" ]; then
+  echo "  FAIL: no python3 found (set PYTHON=/path/to/python3). Skipping simulation."
+  FAILS="$FAILS python3-missing"
+else
+  echo "  using python: $PYBIN"
+  "$PYBIN" "$SCRIPT_DIR/dnstap_synth.py" --target 127.0.0.1:6000 \
+    --count "$SIM_PAIRS" --rate 40 \
+    --server-ip "$SIM_SERVER_IP" --identity "$SIM_IDENTITY" 2>&1 | sed 's/^/  /'
+fi
 grew=0
-for i in $(seq 1 10); do
-  sleep 3
-  after=$(wc -l < "$VECTOR_NIOS_LOG_PATH" 2>/dev/null || echo 0)
-  [ "$after" -gt "$before" ] && { grew=1; break; }
-done
+if [ -n "$PYBIN" ]; then
+  for i in $(seq 1 10); do
+    sleep 3
+    after=$(wc -l < "$VECTOR_NIOS_LOG_PATH" 2>/dev/null || echo 0)
+    [ "$after" -gt "$before" ] && { grew=1; break; }
+  done
+fi
 if [ "$grew" = "1" ]; then
   echo "  OK: $VECTOR_NIOS_LOG_PATH +$((after - before)) lines"
-else
+elif [ -n "$PYBIN" ]; then
   echo "  FAIL: $VECTOR_NIOS_LOG_PATH did not grow"; FAILS="$FAILS vector-nios-file"
 fi
 

@@ -71,18 +71,47 @@ fi
 echo "==> User"
 id splunkfwd >/dev/null 2>&1 || useradd --system --no-create-home --shell /sbin/nologin splunkfwd
 
-echo "==> Config (etc/system/local)"
-install -d "$UF_HOME/etc/system/local"
-cat > "$UF_HOME/etc/system/local/outputs.conf" <<EOF
-[tcpout]
-defaultGroup = mi_indexer
-
-[tcpout:mi_indexer]
-server = ${SPLUNK_IDX_ADDR}
-useACK = false
-EOF
 [ -n "$NIOS_LOG_PATH" ] || [ -n "$VECTOR_NIOS_LOG_PATH" ] || {
   echo "ERROR: set NIOS_LOG_PATH and/or VECTOR_NIOS_LOG_PATH (nothing to monitor)."; exit 1; }
+
+echo "==> Config (etc/system/local)"
+install -d "$UF_HOME/etc/system/local"
+
+# Detect a SHARED / managed forwarder: one that already forwards somewhere
+# (apps define a [tcpout] group, or it is deployment-server managed). On such
+# a box we must NOT hijack default routing or rename it — we only ADD our
+# indexer as a named group and route ONLY the dnstap monitors to it via
+# _TCP_ROUTING, leaving the box's existing forwarding untouched.
+MANAGED=0
+if grep -rslq '^\[tcpout' "$UF_HOME/etc/apps" 2>/dev/null \
+   || [ -f "$UF_HOME/etc/system/local/deploymentclient.conf" ]; then
+  MANAGED=1
+fi
+ROUTE=""   # per-monitor _TCP_ROUTING (set on managed boxes; harmless to always set)
+
+# Back up anything we are about to replace (timestamped, kept on the box).
+TS="$(date +%Y%m%d-%H%M%S)"
+for f in outputs.conf inputs.conf server.conf; do
+  [ -f "$UF_HOME/etc/system/local/$f" ] && \
+    cp -p "$UF_HOME/etc/system/local/$f" "$UF_HOME/etc/system/local/$f.dnstap-bak.$TS"
+done
+
+# outputs.conf — always define our named group; only claim defaultGroup on a
+# dedicated UF. On a managed UF leave defaultGroup alone (apps own it).
+{
+  echo "[tcpout:mi_indexer]"
+  echo "server = ${SPLUNK_IDX_ADDR}"
+  echo "useACK = false"
+  if [ "$MANAGED" = "0" ]; then
+    printf '\n[tcpout]\ndefaultGroup = mi_indexer\n'
+  fi
+} > "$UF_HOME/etc/system/local/outputs.conf"
+if [ "$MANAGED" = "1" ]; then
+  echo "    ! managed/shared forwarder detected — NOT changing defaultGroup or"
+  echo "      serverName; routing only the dnstap monitors to mi_indexer."
+  ROUTE="_TCP_ROUTING = mi_indexer"
+fi
+
 : > "$UF_HOME/etc/system/local/inputs.conf"
 # DNS-collector monitor (source=dnstap:dnscollector)
 if [ -n "$NIOS_LOG_PATH" ]; then
@@ -91,6 +120,7 @@ if [ -n "$NIOS_LOG_PATH" ]; then
 index = ${SPLUNK_INDEX}
 sourcetype = ${SPLUNK_SOURCETYPE}
 source = dnstap:dnscollector
+${ROUTE}
 disabled = false
 EOF
 fi
@@ -103,16 +133,21 @@ if [ -n "$VECTOR_NIOS_LOG_PATH" ]; then
 index = ${SPLUNK_INDEX}
 sourcetype = ${SPLUNK_SOURCETYPE}
 source = dnstap:vector
+${ROUTE}
 disabled = false
 EOF
 fi
-cat > "$UF_HOME/etc/system/local/server.conf" <<EOF
+# server.conf — only on a dedicated UF (renaming a managed forwarder would
+# disrupt its deployment-server / indexer identity).
+if [ "$MANAGED" = "0" ]; then
+  cat > "$UF_HOME/etc/system/local/server.conf" <<EOF
 [general]
 serverName = $(hostname -s)-dnstap-uf
 
 [httpServer]
 disableDefaultPort = true
 EOF
+fi
 # local admin only used for ./bin/splunk CLI on this box; not exposed (no mgmt HTTP)
 if [ ! -f "$UF_HOME/etc/system/local/user-seed.conf" ] && [ ! -f "$UF_HOME/etc/passwd" ]; then
   cat > "$UF_HOME/etc/system/local/user-seed.conf" <<EOF

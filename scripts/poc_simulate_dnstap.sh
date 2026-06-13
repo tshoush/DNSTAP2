@@ -33,6 +33,10 @@ SPLUNK_INDEX="${SPLUNK_INDEX:-mi_dhcp}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SYNTH="$SCRIPT_DIR/dnstap_synth.py"
 [ -f "$SYNTH" ] || { echo "ERROR: $SYNTH not found (run from the repo)."; exit 1; }
+# shellcheck source=/dev/null
+. "$SCRIPT_DIR/poc_common.sh"
+PYBIN="$(find_python "$(dirname "$SCRIPT_DIR")")" \
+  || { echo "ERROR: no python3 found (>=3.6). Set PYTHON=/path/to/python3."; exit 1; }
 
 # A few realistic-looking synthetic NIOS members (name, listening IP). The
 # server-ip lands in dnstap response_address, so each shows up distinctly in
@@ -62,7 +66,7 @@ fi
 
 pids=()
 for i in $(seq 0 $((MEMBERS - 1))); do
-  python3 "$SYNTH" "${COMMON[@]}" \
+  "$PYBIN" "$SYNTH" "${COMMON[@]}" \
     --server-ip "${IPS[$i]}" --identity "${NAMES[$i]}" &
   pids+=($!)
 done
