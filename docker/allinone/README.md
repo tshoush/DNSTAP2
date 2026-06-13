@@ -60,7 +60,7 @@ docker run -d --name dnstap2 \
 
 | Component | Version | Listens on | Notes |
 |---|---|---|---|
-| DNS-collector | 2.2.3 | `:6001` dnstap, `:9599` metrics | receiver; ships to Prometheus + Loki + JSONL archive; latency transform on (`dnstap.latency`); optional Splunk flat-json feed (commented `splunkout` block in config) |
+| DNS-collector | 2.2.3 | `:6001` dnstap, `:9599` metrics | receiver; ships to Prometheus + Loki + JSONL archive; latency transform on (`dnstap.latency`); two optional Splunk feeds (commented in config): `niosfile` (NIOS-style lines for a Splunk UF → S2S indexer) + `splunkout` (flat-json raw TCP) |
 | Prometheus | 2.53.0 | `:9090` | scrapes `localhost:9599` |
 | Loki | 2.9.8 | `:3100` | DNS event logs (filesystem storage) |
 | Grafana | 10.4.2 | `:3000` | Prometheus + Loki datasources + DNS-collector dashboard auto-provisioned |

@@ -67,7 +67,7 @@ docker compose down -v            # stop AND wipe Prometheus/Loki/Grafana/archiv
 |---|---|
 | `docker-compose.yml` | service topology, ports, volumes, the `dnstap` bridge network |
 | `Dockerfile.dnscollector` | builds DNS-collector from the pinned `v2.2.3` release tarball |
-| `dnscollector/config.yml` | dnstap input `:6001`, outputs → Prometheus `:9599`, Loki, JSONL archive; latency transform on (`dnstap.latency` = cache-hit signal); optional Splunk flat-json feed (commented `splunkout` block) |
+| `dnscollector/config.yml` | dnstap input `:6001`, outputs → Prometheus `:9599`, Loki, JSONL archive; latency transform on (`dnstap.latency` = cache-hit signal); two optional Splunk feeds (commented blocks): `niosfile` (NIOS-style lines for a Splunk UF → S2S indexer, e.g. `mi_dhcp`) and `splunkout` (flat-json to a raw TCP input) |
 | `prometheus/prometheus.yml` | scrape job for `dnscollector:9599` |
 | `grafana/provisioning/datasources/` | Prometheus (`uid: prometheus`) + Loki (`uid: loki`) |
 | `grafana/provisioning/dashboards/` | provider + `json/dnscollector-overview.json` |

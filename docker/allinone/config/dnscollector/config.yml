@@ -26,7 +26,7 @@ pipelines:
         unanswered-queries: true
         queries-timeout: 5
     routing-policy:
-      forward: [ metrics, lokiout, fileout ]   # append splunkout to enable the Splunk feed
+      forward: [ metrics, lokiout, fileout ]   # append niosfile (UF) or splunkout for a Splunk feed
       dropped: [ ]
 
   # ---- output: Prometheus metrics (dnscollector_* on :9599) ----
@@ -52,11 +52,26 @@ pipelines:
       max-size: 100
       max-files: 5
 
-  # ---- output (optional): Splunk flat-json feed ----
+  # ---- output (optional): NIOS-style lines for a Splunk Universal Forwarder ----
+  # THE route into an S2S-only indexer (e.g. the Infoblox Data Connector :8005):
+  # raw TCP/syslog text is dropped there — only a forwarder speaks S2S. DNS-
+  # collector CAN emit NIOS named-query-log lookalike lines ({...} are
+  # text-format literals); a UF monitors the file and ships them to index=mi_dhcp
+  # as source=dnstap:dnscollector. In Docker, mount this file out and run a UF
+  # (sidecar/host) — see scripts/install_splunk_uf.sh and the QUICKSTART POC
+  # section. (Bare-metal installs get this via NIOS_LOG_PATH automatically.)
+  # Enable: uncomment and append niosfile to routing-policy.forward above.
+  # - name: niosfile
+  #   logfile:
+  #     file-path: "/var/log/dnscollector/nios.log"
+  #     mode: text
+  #     text-format: 'timestamp-rfc3339ns responseip {named[0]:} {client} queryip queryport {query:} qname {IN} qtype operation rcode'
+  #     max-size: 50
+  #     max-files: 3
+
+  # ---- output (optional): Splunk flat-json feed (raw TCP input) ----
   # One JSON event per line to a Splunk raw TCP input; pair with a line-broken
   # sourcetype like dnscollector:json (SHOULD_LINEMERGE=false, KV_MODE=json).
-  # For NIOS-style syslog lines in Splunk use Vector's SPLUNK_HEC_* feed instead
-  # (scripts/install_dnstap_receiver.sh) — see QUICKSTART "Splunk: two feeds".
   # Enable: uncomment and append splunkout to routing-policy.forward above.
   # - name: splunkout
   #   tcpclient:
