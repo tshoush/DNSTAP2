@@ -1,0 +1,205 @@
+==================== DNSTAP2 POC — ENABLE VECTOR REPORT ====================
+$ date -u
+  Sat Jun 13 16:21:55 UTC 2026
+  [exit 0]
+$ hostname -f
+  infoblox-poc-01
+  [exit 0]
+$ uname -r
+  3.10.0-1160.148.1.el7.x86_64
+  [exit 0]
+$ getenforce
+  Enforcing
+  [exit 0]
+
+-------------------- STEP 1: install/enable Vector (:6000, NIOS file /var/log/dnstap/nios.log) --------------------
+==> Installing Vector 0.39.0 (x86_64-unknown-linux-musl)
+    downloading https://github.com/vectordotdev/vector/releases/download/v0.39.0/vector-0.39.0-x86_64-unknown-linux-musl.tar.gz
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+ 50 42.6M   50 21.4M    0     0  48.0M      0 --:--:-- --:--:-- --:--:-- 48.0M100 42.6M  100 42.6M    0     0  61.5M      0 --:--:-- --:--:-- --:--:-- 86.1M
+    ! SHA256 file unavailable, skipping verification
+vector 0.39.0 (x86_64-unknown-linux-musl 73da9bb 2024-06-17 16:00:23.791735272)
+==> Creating vector user + directories
+==> Writing /etc/vector/vector.toml
+==> Validating config
+√ Loaded ["/etc/vector/vector.toml"]
+------------------------------------
+                           Validated
+==> systemd unit
+==> Firewall (best-effort)
+==> Enabling + starting vector
+==> Status
+active
+    vector active
+    /metrics -> HTTP 200
+
+Done. dnstap receiver listening on 0.0.0.0:6000.
+  Metrics:  http://<this-host>:9598/metrics   (dnstap_queries_total / dnstap_responses_total)
+  Events:   tail -f /var/log/dnstap/events.jsonl | jq .
+
+Next: point a NIOS DNS member's dnstap receiver at <this-host>:6000
+(member:dns -> dnstap_setting.dnstap_receiver_address/port, enable_dnstap_queries/responses,
+use_dnstap_setting=true). NIOS requires DNS Cache Acceleration or Threat Protection
+active for dnstap; the vNIOS model's full vCPU/RAM (e.g. IB-V1425 = 4 vCPU/32 GB)
+must be provisioned or the ADP engine won't start.
+  install_dnstap_receiver.sh: exit 0
+
+-------------------- STEP 2: Splunk UF monitors (dnscollector + vector) -> S2S 172.25.15.215:8005 --------------------
+==> Installing Splunk Universal Forwarder 9.2.2
+    already installed at /opt/splunkforwarder, skipping download
+==> User
+==> Config (etc/system/local)
+==> Enable boot-start (systemd) + start
+    SplunkForwarder: active
+==> Verify S2S connection
+    OK: S2S handshake with 172.25.15.215:8005
+
+UF monitors /var/log/dnscollector/nios.log -> S2S 172.25.15.215:8005 (index=mi_dhcp,
+sourcetype=infoblox:dns, source=dnstap:dnscollector).
+Enable the producer side with:
+  NIOS_LOG_PATH=/var/log/dnscollector/nios.log sudo -E ./install_dnscollector_receiver.sh
+Splunk check:  index=mi_dhcp source="dnstap:dnscollector" | stats count by host
+
+RHEL 7.9 notes: UF 9.2.x is the last line for kernel 3.x — don't upgrade past it.
+If events stall, check SELinux denials (ausearch -m avc -ts recent | grep splunk)
+and firewall egress to 172.25.15.215:8005.
+  install_splunk_uf.sh: exit 0
+
+-------------------- STEP 3: simulate 50 pairs into Vector (:6000, member 162.130.4.21) --------------------
+  /home/ddi-auto-user/DNSTAP/scripts/poc_enable_vector.sh: line 108: python3: command not found
+  FAIL: /var/log/dnstap/nios.log did not grow
+
+==================== DIAGNOSTIC SNAPSHOT ====================
+
+-------------------- [vector] binary + service --------------------
+$ /usr/local/bin/vector --version
+  vector 0.39.0 (x86_64-unknown-linux-musl 73da9bb 2024-06-17 16:00:23.791735272)
+  [exit 0]
+$ systemctl is-active vector
+  active
+  [exit 0]
+  ● vector.service - Vector dnstap receiver (Infoblox NIOS)
+     Loaded: loaded (/etc/systemd/system/vector.service; enabled; vendor preset: disabled)
+     Active: active (running) since Sat 2026-06-13 16:22:03 UTC; 50s ago
+   Main PID: 11686 (vector)
+      Tasks: 5
+     Memory: 12.4M
+     CGroup: /system.slice/vector.service
+             └─11686 /usr/local/bin/vector --config /etc/vector/vector.toml
+  
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.641003Z  INFO vector::topology::running: Running healthchecks.
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.641067Z  INFO vector::topology::builder: Healthcheck passed.
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.641087Z  INFO vector::topology::builder: Healthcheck passed.
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.641093Z  INFO vector::topology::builder: Healthcheck disabled.
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.641161Z  INFO vector::topology::builder: Healthcheck passed.
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.641185Z  INFO vector: Vector has started. debug="false" version="0.39.0" arch="x86_64" revision="73da9bb 2024-06-17 16:00:23.791735272"
+  ---- journal (last 25) ----
+  Jun 13 16:21:58 infoblox-poc-01 vector[10339]: 2026-06-13T16:21:58.439301Z  INFO vector: Vector has started. debug="false" version="0.39.0" arch="x86_64" revision="73da9bb 2024-06-17 16:00:23.791735272"
+  Jun 13 16:21:58 infoblox-poc-01 vector[10339]: 2026-06-13T16:21:58.439316Z  INFO vector::app: API is disabled, enable by setting `api.enabled` to `true` and use commands like `vector top`.
+  Jun 13 16:21:58 infoblox-poc-01 vector[10339]: 2026-06-13T16:21:58.439789Z  INFO source{component_kind="source" component_id=dnstap_in component_type=dnstap}: vector::sources::util::framestream: Listening. addr=0.0.0.0:6000
+  Jun 13 16:21:58 infoblox-poc-01 vector[10339]: 2026-06-13T16:21:58.440224Z  INFO vector::sinks::prometheus::exporter: Building HTTP server. address=0.0.0.0:9598
+  Jun 13 16:21:58 infoblox-poc-01 vector[10339]: 2026-06-13T16:21:58.440286Z  INFO vector::topology::builder: Healthcheck passed.
+  Jun 13 16:21:58 infoblox-poc-01 vector[10339]: 2026-06-13T16:21:58.440292Z  INFO vector::topology::builder: Healthcheck passed.
+  Jun 13 16:21:58 infoblox-poc-01 vector[10339]: 2026-06-13T16:21:58.441996Z  INFO vector::topology::builder: Healthcheck passed.
+  Jun 13 16:22:03 infoblox-poc-01 systemd[1]: Stopping Vector dnstap receiver (Infoblox NIOS)...
+  Jun 13 16:22:03 infoblox-poc-01 vector[10339]: 2026-06-13T16:22:03.418613Z  INFO vector::signal: Signal received. signal="SIGTERM"
+  Jun 13 16:22:03 infoblox-poc-01 vector[10339]: 2026-06-13T16:22:03.418673Z  INFO vector: Vector has stopped.
+  Jun 13 16:22:03 infoblox-poc-01 vector[10339]: 2026-06-13T16:22:03.419408Z  INFO vector::topology::running: Shutting down... Waiting on running components. remaining_components="dnstap_nios_syslog, internal_metrics, syslog_out, jsonl_archive, dnstap_metrics, prom_exporter, nios_file, dnstap_enriched, loki, dnstap_in" time_remaining="59 seconds left"
+  Jun 13 16:22:03 infoblox-poc-01 systemd[1]: Stopped Vector dnstap receiver (Infoblox NIOS).
+  Jun 13 16:22:03 infoblox-poc-01 systemd[1]: Started Vector dnstap receiver (Infoblox NIOS).
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.492849Z  INFO vector::app: Log level is enabled. level="info"
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.493595Z  INFO vector::app: Loading configs. paths=["/etc/vector/vector.toml"]
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.641003Z  INFO vector::topology::running: Running healthchecks.
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.641067Z  INFO vector::topology::builder: Healthcheck passed.
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.641087Z  INFO vector::topology::builder: Healthcheck passed.
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.641093Z  INFO vector::topology::builder: Healthcheck disabled.
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.641161Z  INFO vector::topology::builder: Healthcheck passed.
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.641185Z  INFO vector: Vector has started. debug="false" version="0.39.0" arch="x86_64" revision="73da9bb 2024-06-17 16:00:23.791735272"
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.641202Z  INFO vector::app: API is disabled, enable by setting `api.enabled` to `true` and use commands like `vector top`.
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.641442Z  INFO source{component_kind="source" component_id=dnstap_in component_type=dnstap}: vector::sources::util::framestream: Listening. addr=0.0.0.0:6000
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.641855Z  INFO vector::sinks::prometheus::exporter: Building HTTP server. address=0.0.0.0:9598
+  Jun 13 16:22:03 infoblox-poc-01 vector[11686]: 2026-06-13T16:22:03.642462Z  INFO vector::topology::builder: Healthcheck passed.
+
+-------------------- [vector] listener + metrics --------------------
+$ bash -c ss -ltnp 2>/dev/null | grep -E ':(6000|9598)' || echo 'NONE on :6000/:9598'
+  LISTEN     0      128          *:6000                     *:*                   users:(("vector",pid=11686,fd=9))
+  LISTEN     0      128          *:9598                     *:*                   users:(("vector",pid=11686,fd=10))
+  [exit 0]
+$ bash -c curl -s -m5 localhost:9598/metrics | grep -E '^dnstap_(queries|responses)_total' | head -10 || echo 'metrics unreachable'
+  [exit 0]
+
+-------------------- [dnscollector] context (should remain active) --------------------
+$ systemctl is-active dnscollector
+  active
+  [exit 0]
+$ bash -c ss -ltn 2>/dev/null | grep -E ':6001' || echo 'NONE on :6001'
+  LISTEN     0      128       [::]:6001                  [::]:*                  
+  [exit 0]
+
+-------------------- [nios files] ownership + latest lines --------------------
+$ bash -c ls -l '/var/log/dnstap/nios.log' '/var/log/dnscollector/nios.log' 2>&1
+  -rw-r--r--+ 1 dnscollector dnscollector 29354525 Jun 13 16:22 /var/log/dnscollector/nios.log
+  -rw-r--r--+ 1 vector       vector              0 Jun 13 16:21 /var/log/dnstap/nios.log
+  [exit 0]
+  ---- tail /var/log/dnstap/nios.log (vector; expect client ip#port) ----
+  ---- tail /var/log/dnscollector/nios.log (dnscollector) ----
+  2026-06-13T16:22:54.216421365Z 192.0.2.10 named[0]: client 192.168.10.21 4783 query: cdn.fastly.net IN MX CLIENT_RESPONSE SERVFAIL
+  2026-06-13T16:22:54.216446638Z 192.0.2.10 named[0]: client 198.51.100.94 53 query: cdn.fastly.net IN MX RESOLVER_QUERY -
+  2026-06-13T16:22:54.216462135Z 192.0.2.10 named[0]: client 198.51.100.94 53 query: cdn.fastly.net IN MX RESOLVER_RESPONSE SERVFAIL
+
+-------------------- [UF] service + config + connection --------------------
+$ systemctl is-active SplunkForwarder
+  active
+  [exit 0]
+  ---- inputs.conf ----
+  [monitor:///var/log/dnscollector/nios.log]
+  index = mi_dhcp
+  sourcetype = infoblox:dns
+  source = dnstap:dnscollector
+  disabled = false
+  
+  [monitor:///var/log/dnstap/nios.log]
+  index = mi_dhcp
+  sourcetype = infoblox:dns
+  source = dnstap:vector
+  disabled = false
+  ---- outputs.conf ----
+  [tcpout]
+  defaultGroup = mi_indexer
+  
+  [tcpout:mi_indexer]
+  server = 172.25.15.215:8005
+  useACK = false
+  ---- 'Connected to idx' (last 3) ----
+  06-13-2026 16:22:44.430 +0000 INFO  AutoLoadBalancedConnectionStrategy [12433 TcpOutEloop] - Connected to idx=10.212.146.107:9997:0, pset=0, reuse=0. autoBatch=1
+  06-13-2026 16:22:44.431 +0000 INFO  AutoLoadBalancedConnectionStrategy [12433 TcpOutEloop] - Connected to idx=10.212.146.149:9997:0, pset=0, reuse=0. autoBatch=1
+  06-13-2026 16:22:45.618 +0000 INFO  AutoLoadBalancedConnectionStrategy [12433 TcpOutEloop] - Connected to idx=172.25.15.215:8005:2, pset=0, reuse=0. autoBatch=1
+  ---- tcpout queue (last 2; current_size ~0 = shipped) ----
+  06-13-2026 16:21:40.935 +0000 INFO  Metrics - group=queue, name=tcpout_mi_indexer, max_size=512000, current_size=0, largest_size=56470, smallest_size=0
+  06-13-2026 16:21:40.935 +0000 INFO  Metrics - group=queue, name=tcpout_splunkcloud_20210610_6a200ad7469201c520074bf925216b5c, max_size=512000, current_size=0, largest_size=631, smallest_size=0
+  ---- UF errors (last 8) ----
+  06-13-2026 16:15:36.126 +0000 ERROR TcpOutputFd [18842 TcpOutEloop] - Read error. Connection reset by peer
+  06-13-2026 16:16:35.872 +0000 ERROR TcpOutputFd [18842 TcpOutEloop] - Read error. Connection reset by peer
+  06-13-2026 16:17:05.807 +0000 ERROR TcpOutputFd [18842 TcpOutEloop] - Read error. Connection reset by peer
+  06-13-2026 16:17:05.809 +0000 ERROR TcpOutputFd [18842 TcpOutEloop] - Read error. Connection reset by peer
+  06-13-2026 16:21:04.781 +0000 ERROR TcpOutputFd [18842 TcpOutEloop] - Read error. Connection reset by peer
+  06-13-2026 16:22:14.772 +0000 ERROR TailingProcessor [12436 MainTailingThread] - Input stanza path, 'C:\inetpub\logs\LogFiles' is not absolute.  This is a configuration error and may not work / break things.  Change this path to an absolute path.
+  06-13-2026 16:22:17.318 +0000 ERROR ExecProcessor [12421 ExecProcessor] - message from "/opt/splunkforwarder/etc/apps/Splunk_TA_nix/bin/interfaces.sh" cat: /sys/class/net/eth0/duplex: Invalid argument
+  06-13-2026 16:22:17.321 +0000 ERROR ExecProcessor [12421 ExecProcessor] - message from "/opt/splunkforwarder/etc/apps/Splunk_TA_nix/bin/interfaces.sh" cat: /sys/class/net/eth0/speed: Invalid argument
+
+-------------------- [selinux] recent denials (vector / splunk) --------------------
+  (no matching denials)
+
+-------------------- SUMMARY --------------------
+  RESULT: ISSUES -> vector-nios-file
+  (snapshot above has the cause: service journal / SELinux / nios file)
+
+Report written to: /home/ddi-auto-user/DNSTAP/diagnostics/poc-vector-report.txt — commit + push it (commands appended to the report).
+port.txt
+As ddi-auto-user, run:
+  cd /home/ddi-auto-user/DNSTAP
+  git add diagnostics/poc-vector-report.txt
+  git commit -m 'poc: vector enable diagnostic report'
+  git push
