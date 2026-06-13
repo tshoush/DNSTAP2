@@ -181,8 +181,39 @@ SPLUNK_IDX_ADDR=<indexer>:8005 SPLUNK_INDEX=mi_dhcp sudo -E ./scripts/install_sp
 # Verify:  index=mi_dhcp source="dnstap:dnscollector" | stats count by host
 ```
 
-Or run it all in one shot (git pull → both installers → verify → simulated
-traffic → prints the Splunk search): `sudo -E ./scripts/poc_splunk_bringup.sh`
+### POC one-button setup, then just send traffic
+
+On the POC box the recommended path is the orchestrator — configure the whole
+stack **once**, then never touch the install/Splunk scripts again:
+
+```bash
+# ONE TIME (as root): git pull → install BOTH receivers (DNS-collector :6001 +
+# Vector :6000) → wire the Splunk UF → verify S2S → first simulated batch.
+# Everything is persistent (systemd services + UF boot-start).
+cd /home/ddi-auto-user/DNSTAP && git pull --ff-only
+sudo -E ./scripts/poc_splunk_bringup.sh            # RECEIVER=both is the default
+
+# FROM THEN ON, the only command you ever run — feeds both :6000 and :6001 and
+# the whole stack lights up (Splunk mi_dhcp + Prometheus + Loki + Grafana):
+./scripts/poc_simulate_dnstap.sh                   # no root, no re-install
+```
+
+A real NIOS member pointed at `<this-host>:6001` (DNS-collector) or `:6000`
+(Vector) flows through the identical persistent path — nothing to re-run.
+
+Shared/managed UF note: if `/opt/splunkforwarder` is an existing corporate
+forwarder (already shipping elsewhere), `install_splunk_uf.sh` detects it and
+routes **only** the dnstap monitors to your indexer via `_TCP_ROUTING`, leaving
+its default routing and identity untouched.
+
+Manual equivalent of the two install steps (if you don't use the orchestrator):
+
+```bash
+NIOS_LOG_PATH=/var/log/dnscollector/nios.log sudo -E ./scripts/install_dnscollector_receiver.sh
+NIOS_LOG_PATH=/var/log/dnstap/nios.log       sudo -E ./scripts/install_dnstap_receiver.sh   # Vector
+NIOS_LOG_PATH=/var/log/dnscollector/nios.log VECTOR_NIOS_LOG_PATH=/var/log/dnstap/nios.log \
+  SPLUNK_IDX_ADDR=<indexer>:8005 SPLUNK_INDEX=mi_dhcp sudo -E ./scripts/install_splunk_uf.sh
+```
 
 A ready-made overview dashboard (QPS, top domains, top recursive clients,
 cache-hit %, NXDOMAIN, latency) is in `splunk/dns_dnstap_overview.xml` — POST it

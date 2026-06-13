@@ -21,11 +21,15 @@
 #   SIM_PAIRS        simulated query/response pairs (default 50)
 #   SIM_IDENTITY     simulated member name    (default <hostname>-sim)
 #   SIM_SERVER_IP    simulated member IP      (default this host's primary IP)
-#   RECEIVER         dnscollector | vector | both  (default dnscollector)
-#                    which receiver(s) to install/feed. "both" runs them side
-#                    by side (DNS-collector :6001, Vector :6000) into the same
+#   RECEIVER         both | dnscollector | vector  (default both)
+#                    which receiver(s) to install. "both" runs them side by
+#                    side (DNS-collector :6001, Vector :6000) into the same
 #                    index, distinguished by source=dnstap:dnscollector vs
-#                    source=dnstap:vector.
+#                    source=dnstap:vector. Run this ONCE; everything is
+#                    persistent (systemd + UF boot-start) afterwards, so from
+#                    then on you only run scripts/poc_simulate_dnstap.sh (or a
+#                    real NIOS member points at :6001 / :6000) — no Splunk/
+#                    install script ever needs re-running.
 #   VECTOR_NIOS_LOG_PATH  Vector's NIOS-lines file  (default /var/log/dnstap/nios.log)
 #   SKIP_PULL        1 = don't git pull first (default 0)
 #   DRY_RUN          1 = print the steps without executing them
@@ -35,12 +39,12 @@ SPLUNK_IDX_ADDR="${SPLUNK_IDX_ADDR:-172.25.15.215:8005}"
 SPLUNK_INDEX="${SPLUNK_INDEX:-mi_dhcp}"
 NIOS_LOG_PATH="${NIOS_LOG_PATH:-/var/log/dnscollector/nios.log}"
 VECTOR_NIOS_LOG_PATH="${VECTOR_NIOS_LOG_PATH:-/var/log/dnstap/nios.log}"
-RECEIVER="${RECEIVER:-dnscollector}"
+RECEIVER="${RECEIVER:-both}"
 case "$RECEIVER" in
   dnscollector) WANT_DC=1; WANT_VEC=0 ;;
   vector)       WANT_DC=0; WANT_VEC=1 ;;
   both)         WANT_DC=1; WANT_VEC=1 ;;
-  *) echo "ERROR: RECEIVER must be dnscollector | vector | both (got '$RECEIVER')."; exit 1 ;;
+  *) echo "ERROR: RECEIVER must be both | dnscollector | vector (got '$RECEIVER')."; exit 1 ;;
 esac
 SIMULATE="${SIMULATE:-1}"
 SIM_PAIRS="${SIM_PAIRS:-50}"
@@ -165,8 +169,11 @@ fi
 # ── 6. What to look at ──────────────────────────────────────────────────────
 cat <<EOF
 
-DONE. This box now feeds Splunk; a real NIOS member pointed at
-$(hostname -I 2>/dev/null | awk '{print $1}'):6001 (dnstap over TCP) uses the exact same path.
+DONE — the stack is configured and PERSISTENT (systemd services + UF boot-start).
+From now on you only send dnstap; nothing here needs re-running:
+  * simulate both receivers:  ./scripts/poc_simulate_dnstap.sh
+  * or a real NIOS member -> $(hostname -I 2>/dev/null | awk '{print $1}'):6001 (DNS-collector) / :6000 (Vector)
+Either way it flows to Splunk (mi_dhcp), Prometheus, Loki and Grafana automatically.
 
 Verify in Splunk (last 60 min) — see both receivers side by side:
   index=${SPLUNK_INDEX} source IN ("dnstap:dnscollector","dnstap:vector") earliest=-60m

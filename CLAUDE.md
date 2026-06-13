@@ -57,7 +57,19 @@ mypy src scripts                        # strict mode (see [tool.mypy])
 # End-to-end verification
 python scripts/test_dnstap_flow.py --config config.toml --seconds 30
 curl -s http://localhost:9598/metrics | grep dnstap_
+
+# POC Splunk pipeline (RHEL box) — configure once, then only send dnstap:
+sudo -E ./scripts/poc_splunk_bringup.sh   # ONE TIME: both receivers + UF -> mi_dhcp (RECEIVER=both default)
+./scripts/poc_simulate_dnstap.sh          # recurring: feeds :6000 + :6001, no root, no re-install
+sudo -E ./scripts/poc_enable_vector.sh    # add Vector to an existing DC-only box + write diagnostics/poc-vector-report.txt
 ```
+
+POC scripts are Python-3.6-safe (RHEL 7.9 stock python3) and share
+`scripts/poc_common.sh` (`find_python` resolves an interpreter even when
+`python3` isn't on root's sudo PATH). All POC receivers/UF are persistent
+(systemd + UF boot-start): set up once, then only produce dnstap. The UF
+installer is shared-forwarder-safe — it routes only the dnstap monitors via
+`_TCP_ROUTING` on a managed `/opt/splunkforwarder`.
 
 The `dnstap2` console script (`dnstap2 --tcp 0.0.0.0:6000 --sink stdout`) is the debug collector — see `src/dnstap2/cli.py` for sinks (`stdout`, `jsonl`, `splunk`).
 

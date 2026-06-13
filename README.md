@@ -92,6 +92,25 @@ cd DNSTAP2
 ./scripts/setup.sh --apply         # actually push the InfoBlox dnstap config
 ```
 
+### POC fast path — configure once, then just send dnstap
+
+For a Splunk-feeding POC (both receivers + a Universal Forwarder to an
+S2S-only indexer like the Infoblox Data Connector's `:8005`), one command wires
+the whole stack persistently; after that you only ever send dnstap:
+
+```bash
+# ONE TIME (root): installs DNS-collector :6001 + Vector :6000, wires the UF to
+# index=mi_dhcp on the indexer, verifies S2S. Everything is a persistent service.
+sudo -E ./scripts/poc_splunk_bringup.sh                 # RECEIVER=both by default
+
+# FROM THEN ON: feed both :6000 and :6001 and watch Splunk + Grafana light up.
+./scripts/poc_simulate_dnstap.sh                        # no root, no re-install
+```
+
+A real NIOS member pointed at `<host>:6001` (DNS-collector) or `:6000` (Vector)
+uses the same persistent path. Details in
+[QUICKSTART.md](QUICKSTART.md#poc-one-button-setup-then-just-send-traffic).
+
 Verify:
 
 ```bash

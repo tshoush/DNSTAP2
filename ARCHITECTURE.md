@@ -152,6 +152,25 @@ We do not hardcode WAPI field names because they vary by NIOS build. Instead:
 | Auth on the wire | none in this design | acceptable on a trusted management network; for prod add TLS terminator (nginx/stunnel) in front |
 | Restartability | both services restart cleanly | InfoBlox keeps trying to reconnect on its side |
 
+### 6.1 POC operational model — configure once, then only send dnstap
+
+The POC scripts make the whole stack a set of **persistent services** so the
+only recurring action is producing dnstap:
+
+- `scripts/poc_splunk_bringup.sh` (run once, root) installs/enables **both**
+  receivers — DNS-collector (`:6001`) and Vector (`:6000`) — each writing a
+  NIOS-style line file, and wires a Splunk **Universal Forwarder** that S2S-ships
+  both files to `index=mi_dhcp` (`source=dnstap:dnscollector` / `dnstap:vector`).
+  systemd `enable` + UF boot-start make all of it survive reboots.
+- After that, `scripts/poc_simulate_dnstap.sh` (no root) feeds **both** ports in
+  one command and the stack lights up end-to-end — Splunk, Prometheus, Loki,
+  Grafana — with no install/Splunk script re-run. A real NIOS member pointed at
+  `:6001`/`:6000` takes the identical path.
+- On a **shared corporate UF**, `install_splunk_uf.sh` detects it (apps define
+  `[tcpout]`, or a `deploymentclient.conf` is present) and routes only the
+  dnstap monitors via `_TCP_ROUTING`, never touching the box's default routing
+  or identity.
+
 ## 7. Security posture
 
 - **TLS termination** in front of Vector (nginx or stunnel) for any non-lab deployment.
