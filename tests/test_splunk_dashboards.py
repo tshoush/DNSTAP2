@@ -19,7 +19,8 @@ SPLUNK_DIR = REPO_ROOT / "splunk"
 
 # index -> dashboards that must target it (and reference the right sources)
 MI_DHCP_DASHBOARDS = ("dns_dnstap_ab_overview.xml", "dns_dnstap_filterable.xml")
-ALL_DASHBOARDS = ("dns_dnstap_overview.xml",) + MI_DHCP_DASHBOARDS
+HEALTH_DASHBOARD = "infoblox_system_health.xml"
+ALL_DASHBOARDS = ("dns_dnstap_overview.xml", HEALTH_DASHBOARD) + MI_DHCP_DASHBOARDS
 
 
 def _xml_files() -> list[Path]:
@@ -54,3 +55,14 @@ def test_mi_dhcp_dashboards_handle_both_dnstap_legs(name: str) -> None:
     """Extraction must cover RESOLVER_* too, or resolver responses misclassify."""
     text = (SPLUNK_DIR / name).read_text()
     assert "RESOLVER" in text, f"{name} only handles the CLIENT_* leg"
+
+
+def test_health_dashboard_matches_collector_contract() -> None:
+    """The health board must read the collector's index/sourcetype + key fields."""
+    text = (SPLUNK_DIR / HEALTH_DASHBOARD).read_text()
+    assert "index=mi_dhcp" in text
+    assert 'sourcetype="infoblox:health"' in text
+    # the key=value fields the collector emits and the gauges depend on
+    for field in ("cpu_used_pct", "mem_used_pct", "swap_used_pct",
+                  "disk_used_pct", "health_status", "member"):
+        assert field in text, f"{HEALTH_DASHBOARD} no longer references {field}"

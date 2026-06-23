@@ -236,6 +236,41 @@ answered from cache): NIOS dnstap only emits client query/response events, so
 resolver-ratio math is not possible; the DNS-collector `latency` transform must
 be enabled (the installer does this).
 
+## Optional: InfoBlox system health via SNMP
+
+A separate, optional collector adds **system-health** metrics (CPU, memory,
+swap, disk, load, uptime — what the InfoBlox Grid Manager "System" panel shows)
+to the same `mi_dhcp` index, distinct from the dnstap data by
+`sourcetype=infoblox:health` / `source=infoblox:health`. It polls SNMP (net-snmp
+`snmpget`, no Python SNMP dependency) and writes Splunk `key=value` lines a UF
+monitors — so every field auto-extracts, no props/transforms.
+
+```bash
+# 1. run the collector as a persistent service (SNMP poll of an InfoBlox member):
+HEALTH_TARGET=172.25.15.234 SNMP_COMMUNITY=public sudo -E ./scripts/install_health_snmp.sh
+#    …or monitor the collector box itself from /proc (no SNMP agent needed):
+HEALTH_MODE=self sudo -E ./scripts/install_health_snmp.sh
+
+# 2. add the UF monitor for the health log (one time):
+HEALTH_LOG_PATH=/var/log/dnstap-health/health.log sudo -E ./scripts/install_splunk_uf.sh
+
+# 3. import splunk/infoblox_system_health.xml  (Dashboards → Create → Classic → Source)
+```
+
+Quick one-shot test without installing anything (prints a line to stdout):
+
+```bash
+python3 scripts/poc_health_snmp.py --self --stdout
+python3 scripts/poc_health_snmp.py --target 172.25.15.234 --community public --member dns01 --stdout
+```
+
+Each line looks like
+`<ts> member=<node> cpu_used_pct=12.5 mem_used_pct=43.1 swap_used_pct=2.1 disk_used_pct=38.0 load1=0.42 uptime_s=864000 health_status=OK`.
+OIDs default to UCD-SNMP-MIB + HOST-RESOURCES-MIB (answered by InfoBlox NIOS and
+any net-snmp host); override any of them with `OID_CPU_IDLE`, `OID_MEM_TOTAL`, …
+to point at a build's InfoBlox enterprise (`.7779`) leaves instead. Splunk check:
+`index=mi_dhcp sourcetype="infoblox:health" | stats latest(health_status) by member`.
+
 ---
 
 ## RHEL 8 / 9, Rocky, Alma, Fedora

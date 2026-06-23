@@ -147,6 +147,13 @@ dashboards ship in [`splunk/`](splunk/) (catalog: [`splunk/README.md`](splunk/RE
 text path — the latter pair compare/filter **Vector vs DNS-collector** on the
 `source` field and parse the NIOS line with search-time `rex` (no indexer config).
 
+**Optional system health (SNMP).** `scripts/poc_health_snmp.py` polls CPU /
+memory / swap / disk / load / uptime over SNMP (or this host's `/proc`) and ships
+Splunk `key=value` lines to the same `mi_dhcp` index (`sourcetype=infoblox:health`).
+`scripts/install_health_snmp.sh` runs it as a systemd service; the
+`infoblox_system_health.xml` dashboard renders it like the InfoBlox Grid Manager
+"System" panel. See [QUICKSTART.md](QUICKSTART.md#optional-infoblox-system-health-via-snmp).
+
 ## Verifying it works
 
 ```bash

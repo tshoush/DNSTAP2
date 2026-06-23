@@ -35,6 +35,11 @@ NIOS_LOG_PATH="${NIOS_LOG_PATH-/var/log/dnscollector/nios.log}"
 VECTOR_NIOS_LOG_PATH="${VECTOR_NIOS_LOG_PATH-}"
 SPLUNK_INDEX="${SPLUNK_INDEX:-mi_dhcp}"
 SPLUNK_SOURCETYPE="${SPLUNK_SOURCETYPE:-infoblox:dns}"
+# Optional system-health monitor (scripts/poc_health_snmp.py writes this file).
+# Empty = disabled. Lands in the same index, distinguished by source/sourcetype.
+HEALTH_LOG_PATH="${HEALTH_LOG_PATH-}"
+HEALTH_SOURCETYPE="${HEALTH_SOURCETYPE:-infoblox:health}"
+HEALTH_SOURCE="${HEALTH_SOURCE:-infoblox:health}"
 UF_VERSION="${UF_VERSION:-9.2.2}"
 UF_BUILD="${UF_BUILD:-d76edf6f0a15}"
 UF_HOME=/opt/splunkforwarder
@@ -133,6 +138,20 @@ if [ -n "$VECTOR_NIOS_LOG_PATH" ]; then
 index = ${SPLUNK_INDEX}
 sourcetype = ${SPLUNK_SOURCETYPE}
 source = dnstap:vector
+${ROUTE}
+disabled = false
+EOF
+fi
+# Optional system-health monitor (source=infoblox:health) — key=value lines from
+# scripts/poc_health_snmp.py. Same index, distinct source/sourcetype so the
+# infoblox_system_health dashboard and the dnstap searches don't overlap.
+if [ -n "$HEALTH_LOG_PATH" ]; then
+  cat >> "$UF_HOME/etc/system/local/inputs.conf" <<EOF
+
+[monitor://${HEALTH_LOG_PATH}]
+index = ${SPLUNK_INDEX}
+sourcetype = ${HEALTH_SOURCETYPE}
+source = ${HEALTH_SOURCE}
 ${ROUTE}
 disabled = false
 EOF

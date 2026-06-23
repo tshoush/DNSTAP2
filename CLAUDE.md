@@ -62,6 +62,11 @@ curl -s http://localhost:9598/metrics | grep dnstap_
 sudo -E ./scripts/poc_splunk_bringup.sh   # ONE TIME: both receivers + UF -> mi_dhcp (RECEIVER=both default)
 ./scripts/poc_simulate_dnstap.sh          # recurring: feeds :6000 + :6001, no root, no re-install
 sudo -E ./scripts/poc_enable_vector.sh    # add Vector to an existing DC-only box + write diagnostics/poc-vector-report.txt
+
+# OPTIONAL system-health add-on (CPU/mem/swap/disk via SNMP -> same mi_dhcp index)
+python3 scripts/poc_health_snmp.py --self --stdout                 # one sample, no install
+HEALTH_TARGET=<member> SNMP_COMMUNITY=public sudo -E ./scripts/install_health_snmp.sh
+HEALTH_LOG_PATH=/var/log/dnstap-health/health.log sudo -E ./scripts/install_splunk_uf.sh  # ship it
 ```
 
 POC scripts are Python-3.6-safe (RHEL 7.9 stock python3) and share
@@ -69,7 +74,18 @@ POC scripts are Python-3.6-safe (RHEL 7.9 stock python3) and share
 `python3` isn't on root's sudo PATH). All POC receivers/UF are persistent
 (systemd + UF boot-start): set up once, then only produce dnstap. The UF
 installer is shared-forwarder-safe — it routes only the dnstap monitors via
-`_TCP_ROUTING` on a managed `/opt/splunkforwarder`.
+`_TCP_ROUTING` on a managed `/opt/splunkforwarder`. These py3.6 collectors
+(`poc_health_snmp.py`, `dnstap_synth.py`) can't use PEP 585/604 typing, so ruff's
+`UP006/UP007/UP035/UP045` (and `UP021/UP022/B905`) are silenced for them via
+`[tool.ruff.lint.per-file-ignores]` — keep new py3.6 scripts there, not littered with `# noqa`.
+
+**System health is a separate feed, not dnstap.** `scripts/poc_health_snmp.py`
+ingests CPU/mem/swap/disk/load/uptime via SNMP (`snmpget`; `--self` reads `/proc`)
+and emits Splunk `key=value` lines under a distinct `sourcetype=infoblox:health` /
+`source=infoblox:health` in the *same* `mi_dhcp` index — so it coexists with the
+dnstap `infoblox:dns` data without overlapping searches. OIDs are env-overridable
+(`OID_*`), defaulting to UCD-SNMP-MIB + HOST-RESOURCES-MIB. Dashboard:
+`splunk/infoblox_system_health.xml`; tests: `tests/test_health_snmp.py`.
 
 The `dnstap2` console script (`dnstap2 --tcp 0.0.0.0:6000 --sink stdout`) is the debug collector — see `src/dnstap2/cli.py` for sinks (`stdout`, `jsonl`, `splunk`).
 

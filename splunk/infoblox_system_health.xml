@@ -1,0 +1,205 @@
+<form version="1.1" theme="dark">
+  <label>InfoBlox System Health (SNMP)</label>
+  <description>System health for InfoBlox members / collector hosts, ingested via SNMP by scripts/poc_health_snmp.py and shipped to index=mi_dhcp (sourcetype=infoblox:health). Mirrors the InfoBlox Grid Manager System panel: CPU, Memory, Swap, Disk, load and uptime. Every key=value is auto-extracted — no props/transforms needed.</description>
+
+  <fieldset submitButton="false" autoRun="true">
+    <input type="time" token="tspan" searchWhenChanged="true">
+      <label>Time range</label>
+      <default><earliest>-4h@m</earliest><latest>now</latest></default>
+    </input>
+    <input type="dropdown" token="member" searchWhenChanged="true">
+      <label>Member / host</label>
+      <choice value="*">All members</choice>
+      <default>*</default>
+      <fieldForLabel>member</fieldForLabel>
+      <fieldForValue>member</fieldForValue>
+      <search>
+        <query>index=mi_dhcp sourcetype="infoblox:health" | stats count by member | sort member</query>
+        <earliest>$tspan.earliest$</earliest>
+        <latest>$tspan.latest$</latest>
+      </search>
+    </input>
+    <input type="dropdown" token="span" searchWhenChanged="true">
+      <label>Granularity</label>
+      <choice value="1m">1 minute</choice>
+      <choice value="5m">5 minutes</choice>
+      <choice value="15m">15 minutes</choice>
+      <default>5m</default>
+    </input>
+  </fieldset>
+
+  <!-- ── Row 1: status + the four InfoBlox gauges ─────────────────────────── -->
+  <row>
+    <panel>
+      <title>Overall status (latest)</title>
+      <single>
+        <search>
+          <query>index=mi_dhcp sourcetype="infoblox:health" member=$member$
+| stats latest(health_status) as status latest(_time) as t by member
+| eval sev=case(status="CRIT",2,status="WARN",1,true(),0)
+| stats max(sev) as sev values(status) as status
+| eval status=case(sev=2,"CRIT",sev=1,"WARN",true(),"OK")
+| fields status sev</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="colorBy">value</option>
+        <option name="useColors">1</option>
+        <option name="colorMode">block</option>
+        <option name="field">status</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+      </single>
+    </panel>
+    <panel>
+      <title>CPU used %</title>
+      <chart>
+        <search>
+          <query>index=mi_dhcp sourcetype="infoblox:health" member=$member$
+| stats avg(cpu_used_pct) as v | eval v=round(v,1) | fields v</query>
+          <earliest>$tspan.earliest$</earliest><latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">radialGauge</option>
+        <option name="charting.chart.rangeValues">[0,75,90,100]</option>
+        <option name="charting.gaugeColors">[0x53a051,0xf8be34,0xdc4e41]</option>
+        <option name="charting.chart.style">shiny</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Memory used %</title>
+      <chart>
+        <search>
+          <query>index=mi_dhcp sourcetype="infoblox:health" member=$member$
+| stats avg(mem_used_pct) as v | eval v=round(v,1) | fields v</query>
+          <earliest>$tspan.earliest$</earliest><latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">radialGauge</option>
+        <option name="charting.chart.rangeValues">[0,75,90,100]</option>
+        <option name="charting.gaugeColors">[0x53a051,0xf8be34,0xdc4e41]</option>
+        <option name="charting.chart.style">shiny</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Swap used %</title>
+      <chart>
+        <search>
+          <query>index=mi_dhcp sourcetype="infoblox:health" member=$member$
+| stats avg(swap_used_pct) as v | eval v=round(v,1) | fields v</query>
+          <earliest>$tspan.earliest$</earliest><latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">radialGauge</option>
+        <option name="charting.chart.rangeValues">[0,50,80,100]</option>
+        <option name="charting.gaugeColors">[0x53a051,0xf8be34,0xdc4e41]</option>
+        <option name="charting.chart.style">shiny</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Disk used %</title>
+      <chart>
+        <search>
+          <query>index=mi_dhcp sourcetype="infoblox:health" member=$member$
+| stats avg(disk_used_pct) as v | eval v=round(v,1) | fields v</query>
+          <earliest>$tspan.earliest$</earliest><latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">radialGauge</option>
+        <option name="charting.chart.rangeValues">[0,75,90,100]</option>
+        <option name="charting.gaugeColors">[0x53a051,0xf8be34,0xdc4e41]</option>
+        <option name="charting.chart.style">shiny</option>
+      </chart>
+    </panel>
+  </row>
+
+  <!-- ── Row 2: CPU + Memory trends ───────────────────────────────────────── -->
+  <row>
+    <panel>
+      <title>CPU used % over time</title>
+      <chart>
+        <search>
+          <query>index=mi_dhcp sourcetype="infoblox:health" member=$member$
+| timechart span=$span$ avg(cpu_used_pct) as cpu_used_pct by member limit=0</query>
+          <earliest>$tspan.earliest$</earliest><latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">% used</option>
+        <option name="charting.axisY.maximumNumber">100</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Memory used % over time</title>
+      <chart>
+        <search>
+          <query>index=mi_dhcp sourcetype="infoblox:health" member=$member$
+| timechart span=$span$ avg(mem_used_pct) as mem_used_pct by member limit=0</query>
+          <earliest>$tspan.earliest$</earliest><latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">% used</option>
+        <option name="charting.axisY.maximumNumber">100</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+  </row>
+
+  <!-- ── Row 3: Disk/Swap + load average ──────────────────────────────────── -->
+  <row>
+    <panel>
+      <title>Disk &amp; Swap used % over time</title>
+      <chart>
+        <search>
+          <query>index=mi_dhcp sourcetype="infoblox:health" member=$member$
+| timechart span=$span$ avg(disk_used_pct) as disk avg(swap_used_pct) as swap</query>
+          <earliest>$tspan.earliest$</earliest><latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">% used</option>
+        <option name="charting.fieldColors">{"disk":"#7c9cff","swap":"#f5a623"}</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Load average (1 / 5 / 15 min)</title>
+      <chart>
+        <search>
+          <query>index=mi_dhcp sourcetype="infoblox:health" member=$member$
+| timechart span=$span$ avg(load1) as load1 avg(load5) as load5 avg(load15) as load15</query>
+          <earliest>$tspan.earliest$</earliest><latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">load</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+  </row>
+
+  <!-- ── Row 4: node list (the InfoBlox member table) ─────────────────────── -->
+  <row>
+    <panel>
+      <title>Members — latest health (click to drill)</title>
+      <table>
+        <search>
+          <query>index=mi_dhcp sourcetype="infoblox:health" member=$member$
+| stats latest(health_status) as status latest(cpu_used_pct) as "CPU %"
+        latest(mem_used_pct) as "Mem %" latest(mem_used_mb) as "Mem MB"
+        latest(swap_used_pct) as "Swap %" latest(disk_used_pct) as "Disk %"
+        latest(disk_used_gb) as "Disk GB" latest(load1) as "Load 1m"
+        latest(uptime_s) as up latest(_time) as last by member
+| eval "Uptime (d)"=round(up/86400,1), Last=strftime(last,"%F %T")
+| fields member status "CPU %" "Mem %" "Mem MB" "Swap %" "Disk %" "Disk GB" "Load 1m" "Uptime (d)" Last
+| rename member as Member status as Status | sort Member</query>
+          <earliest>$tspan.earliest$</earliest><latest>$tspan.latest$</latest>
+        </search>
+        <option name="drilldown">cell</option>
+        <drilldown>
+          <set token="form.member">$row.Member$</set>
+        </drilldown>
+        <format type="color" field="Status">
+          <colorPalette type="map">{"OK":#1a7a3e,"WARN":#8a6d1a,"CRIT":#a02622}</colorPalette>
+        </format>
+        <format type="number" field="CPU %"><option name="unit">%</option></format>
+        <format type="number" field="Mem %"><option name="unit">%</option></format>
+        <format type="number" field="Disk %"><option name="unit">%</option></format>
+      </table>
+    </panel>
+  </row>
+</form>

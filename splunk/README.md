@@ -8,6 +8,7 @@ telemetry. Pick by which **index** your events land in and what you want to do.
 | [`dns_dnstap_overview.xml`](dns_dnstap_overview.xml) | `dns_dnstap`, `sourcetype=dnscollector:json` (flat-json) | `dnstap.identity` (DNS server) | Rich overview: QPS, top domains, rogue-client / DDoS hunting, cache-hit %, NXDOMAIN, latency. Uses native JSON fields. |
 | [`dns_dnstap_ab_overview.xml`](dns_dnstap_ab_overview.xml) | `mi_dhcp` (UF text lines) | `source` (receiver) | Port of the Grafana "DNS-collector Overview (+ A/B vs Vector)" board. Compares **Vector (`:6000`)** vs **DNS-collector (`:6001`)** side by side. |
 | [`dns_dnstap_filterable.xml`](dns_dnstap_filterable.xml) | `mi_dhcp` (UF text lines) | `source` (receiver) | Same data with interactive filters: **Receiver / DNS leg / domain / client IP** + time + granularity. Click pie/table rows to drill down. |
+| [`infoblox_system_health.xml`](infoblox_system_health.xml) | `mi_dhcp`, `sourcetype=infoblox:health` (UF `key=value`) | `member` | **System health** (optional add-on): CPU / Memory / Swap / Disk gauges, load & uptime trends, and a per-member status table — the InfoBlox Grid Manager "System" view. Fed by [`scripts/poc_health_snmp.py`](../scripts/poc_health_snmp.py) over SNMP. |
 
 ## Which index do I have?
 
@@ -57,6 +58,31 @@ curl -k -u <user>:<pass> \
   https://<splunk-host>:8089/servicesNS/admin/search/data/ui/views \
   -d "name=dns_dnstap_filterable" \
   --data-urlencode "eai:data@dns_dnstap_filterable.xml"
+```
+
+## Optional: InfoBlox system health (SNMP)
+
+A separate, optional feed adds host/member **system-health** metrics (CPU,
+memory, swap, disk, load, uptime) next to the dnstap data in the same index —
+the things the InfoBlox Grid Manager "System" panel shows.
+
+```bash
+# collect every 60s into a UF-monitored log (SNMP poll of an InfoBlox member):
+HEALTH_TARGET=172.25.15.234 SNMP_COMMUNITY=public sudo -E ./scripts/install_health_snmp.sh
+# add the UF monitor for the health file (one time):
+HEALTH_LOG_PATH=/var/log/dnstap-health/health.log sudo -E ./scripts/install_splunk_uf.sh
+```
+
+The collector ([`scripts/poc_health_snmp.py`](../scripts/poc_health_snmp.py))
+emits Splunk `key=value` lines (`sourcetype=infoblox:health`,
+`source=infoblox:health`), so every field auto-extracts. `--self` mode reads the
+local `/proc` instead of SNMP (monitor the collector box itself, or test without
+an agent). Sanity check:
+
+```spl
+index=mi_dhcp sourcetype="infoblox:health" earliest=-1h
+| stats latest(health_status) as status latest(cpu_used_pct) as cpu
+        latest(mem_used_pct) as mem latest(disk_used_pct) as disk by member
 ```
 
 ## Notes
