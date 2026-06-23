@@ -140,9 +140,12 @@ query/response logging** (sourcetype `infoblox:dns`, via Vector HEC), so
 dashboards built for InfoBlox syslog need no rewrite. A parallel **flat-json**
 feed (sourcetype `dnscollector:json`, via DNS-collector → raw TCP) provides
 machine-friendly fields. Both can run at once; see the table in
-[QUICKSTART.md](QUICKSTART.md#splunk-two-feeds-two-formats). A ready-made
-overview dashboard (QPS, top domains, rogue-client/DDoS hunting, cache-hit %,
-NXDOMAIN, latency) ships in [`splunk/dns_dnstap_overview.xml`](splunk/dns_dnstap_overview.xml).
+[QUICKSTART.md](QUICKSTART.md#splunk-two-feeds-two-formats). Ready-made
+dashboards ship in [`splunk/`](splunk/) (catalog: [`splunk/README.md`](splunk/README.md)):
+`dns_dnstap_overview.xml` for the flat-json `dns_dnstap` index, plus
+`dns_dnstap_ab_overview.xml` and `dns_dnstap_filterable.xml` for the POC `mi_dhcp`
+text path — the latter pair compare/filter **Vector vs DNS-collector** on the
+`source` field and parse the NIOS line with search-time `rex` (no indexer config).
 
 ## Verifying it works
 

@@ -1,0 +1,316 @@
+<form version="1.1" theme="dark">
+  <label>DNS dnstap — Filterable (Vector vs DNS-collector)</label>
+  <description>POC index=mi_dhcp. Filter by Receiver (Vector :6000 / DNS-collector :6001), DNS leg, domain, and client IP. Fields are rex-extracted at search time from the NIOS-style line and handle CLIENT_* and RESOLVER_* legs, so it works without any props/transforms.</description>
+
+  <fieldset submitButton="false" autoRun="true">
+    <input type="time" token="tspan" searchWhenChanged="true">
+      <label>Time range</label>
+      <default>
+        <earliest>-60m@m</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="dropdown" token="srcfilter" searchWhenChanged="true">
+      <label>Receiver</label>
+      <choice value="source IN (&quot;dnstap:vector&quot;,&quot;dnstap:dnscollector&quot;)">Both</choice>
+      <choice value="source=&quot;dnstap:vector&quot;">Vector only (:6000)</choice>
+      <choice value="source=&quot;dnstap:dnscollector&quot;">DNS-collector only (:6001)</choice>
+      <default>source IN ("dnstap:vector","dnstap:dnscollector")</default>
+      <initialValue>source IN ("dnstap:vector","dnstap:dnscollector")</initialValue>
+    </input>
+    <input type="dropdown" token="legwhere" searchWhenChanged="true">
+      <label>DNS leg</label>
+      <choice value="leg=&quot;client&quot;">Client-facing</choice>
+      <choice value="leg=&quot;resolver&quot;">Resolver / recursion</choice>
+      <choice value="1==1">All legs</choice>
+      <default>leg="client"</default>
+      <initialValue>leg="client"</initialValue>
+    </input>
+    <input type="dropdown" token="span" searchWhenChanged="true">
+      <label>Granularity</label>
+      <choice value="10s">10 seconds</choice>
+      <choice value="30s">30 seconds</choice>
+      <choice value="1m">1 minute</choice>
+      <choice value="5m">5 minutes</choice>
+      <default>1m</default>
+    </input>
+    <input type="text" token="domain" searchWhenChanged="true">
+      <label>Domain (* = all)</label>
+      <default>*</default>
+      <initialValue>*</initialValue>
+    </input>
+    <input type="text" token="client" searchWhenChanged="true">
+      <label>Client IP (* = all)</label>
+      <default>*</default>
+      <initialValue>*</initialValue>
+    </input>
+  </fieldset>
+
+  <!-- ── Row 1: filtered stat tiles ───────────────────────────────────────── -->
+  <row>
+    <panel>
+      <title>Events (filtered)</title>
+      <single>
+        <search>
+          <query>index=mi_dhcp $srcfilter$
+| rex "(?&lt;operation&gt;(?:CLIENT|RESOLVER|AUTH|FORWARDER)_(?:QUERY|RESPONSE))"
+| eval operation=coalesce(operation, if(match(_raw,"response:"),"CLIENT_RESPONSE","CLIENT_QUERY"))
+| eval evt=if(match(operation,"_RESPONSE$"),"response","query"), leg=lower(replace(operation,"_(QUERY|RESPONSE)$",""))
+| rex "query:\s+(?&lt;qname&gt;\S+)\s+IN"
+| rex "client\s+(?&lt;client&gt;\d{1,3}(?:\.\d{1,3}){3})"
+| search qname="$domain$" client="$client$"
+| where $legwhere$
+| stats count</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="colorMode">block</option>
+      </single>
+    </panel>
+    <panel>
+      <title>QPS (queries/s)</title>
+      <single>
+        <search>
+          <query>index=mi_dhcp $srcfilter$
+| rex "(?&lt;operation&gt;(?:CLIENT|RESOLVER|AUTH|FORWARDER)_(?:QUERY|RESPONSE))"
+| eval operation=coalesce(operation, if(match(_raw,"response:"),"CLIENT_RESPONSE","CLIENT_QUERY"))
+| eval evt=if(match(operation,"_RESPONSE$"),"response","query"), leg=lower(replace(operation,"_(QUERY|RESPONSE)$",""))
+| rex "query:\s+(?&lt;qname&gt;\S+)\s+IN"
+| rex "client\s+(?&lt;client&gt;\d{1,3}(?:\.\d{1,3}){3})"
+| search qname="$domain$" client="$client$"
+| where $legwhere$ AND evt="query"
+| stats count as q earliest(_time) as a latest(_time) as b
+| eval QPS=round(q/max(b-a,1),2) | fields QPS</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0.00</option>
+        <option name="colorMode">block</option>
+        <option name="useColors">1</option>
+        <option name="rangeColors">["0x53a051","0x53a051"]</option>
+      </single>
+    </panel>
+    <panel>
+      <title>NXDOMAIN responses</title>
+      <single>
+        <search>
+          <query>index=mi_dhcp $srcfilter$
+| rex "(?&lt;operation&gt;(?:CLIENT|RESOLVER|AUTH|FORWARDER)_(?:QUERY|RESPONSE))"
+| eval operation=coalesce(operation, if(match(_raw,"response:"),"CLIENT_RESPONSE","CLIENT_QUERY"))
+| eval evt=if(match(operation,"_RESPONSE$"),"response","query"), leg=lower(replace(operation,"_(QUERY|RESPONSE)$",""))
+| rex "query:\s+(?&lt;qname&gt;\S+)\s+IN"
+| rex "client\s+(?&lt;client&gt;\d{1,3}(?:\.\d{1,3}){3})"
+| rex "(?:_RESPONSE\s+|response:\s+)(?&lt;rcode&gt;[A-Z]+)"
+| search qname="$domain$" client="$client$"
+| where $legwhere$ AND evt="response" AND rcode="NXDOMAIN"
+| stats count</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="colorMode">block</option>
+        <option name="useColors">1</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[1,100]</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Distinct clients</title>
+      <single>
+        <search>
+          <query>index=mi_dhcp $srcfilter$
+| rex "(?&lt;operation&gt;(?:CLIENT|RESOLVER|AUTH|FORWARDER)_(?:QUERY|RESPONSE))"
+| eval operation=coalesce(operation, if(match(_raw,"response:"),"CLIENT_RESPONSE","CLIENT_QUERY"))
+| eval evt=if(match(operation,"_RESPONSE$"),"response","query"), leg=lower(replace(operation,"_(QUERY|RESPONSE)$",""))
+| rex "query:\s+(?&lt;qname&gt;\S+)\s+IN"
+| rex "client\s+(?&lt;client&gt;\d{1,3}(?:\.\d{1,3}){3})"
+| search qname="$domain$" client="$client$"
+| where $legwhere$
+| stats dc(client) as clients | fields clients</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="colorMode">block</option>
+      </single>
+    </panel>
+  </row>
+
+  <!-- ── Row 2: receiver comparison ───────────────────────────────────────── -->
+  <row>
+    <panel>
+      <title>Events by receiver (click a slice to filter)</title>
+      <chart>
+        <search>
+          <query>index=mi_dhcp $srcfilter$
+| rex "(?&lt;operation&gt;(?:CLIENT|RESOLVER|AUTH|FORWARDER)_(?:QUERY|RESPONSE))"
+| eval operation=coalesce(operation, if(match(_raw,"response:"),"CLIENT_RESPONSE","CLIENT_QUERY"))
+| eval evt=if(match(operation,"_RESPONSE$"),"response","query"), leg=lower(replace(operation,"_(QUERY|RESPONSE)$",""))
+| eval receiver=case(source="dnstap:vector","Vector",source="dnstap:dnscollector","DNS-collector",true(),source)
+| rex "query:\s+(?&lt;qname&gt;\S+)\s+IN"
+| rex "client\s+(?&lt;client&gt;\d{1,3}(?:\.\d{1,3}){3})"
+| search qname="$domain$" client="$client$"
+| where $legwhere$
+| stats count by receiver</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">pie</option>
+        <option name="charting.fieldColors">{"Vector":"#1f78b4","DNS-collector":"#33a02c"}</option>
+        <drilldown>
+          <condition match="'click.value2'==&quot;Vector&quot;">
+            <set token="form.srcfilter">source="dnstap:vector"</set>
+          </condition>
+          <condition match="'click.value2'==&quot;DNS-collector&quot;">
+            <set token="form.srcfilter">source="dnstap:dnscollector"</set>
+          </condition>
+        </drilldown>
+      </chart>
+    </panel>
+    <panel>
+      <title>QPS over time — Vector vs DNS-collector</title>
+      <chart>
+        <search>
+          <query>index=mi_dhcp $srcfilter$
+| rex "(?&lt;operation&gt;(?:CLIENT|RESOLVER|AUTH|FORWARDER)_(?:QUERY|RESPONSE))"
+| eval operation=coalesce(operation, if(match(_raw,"response:"),"CLIENT_RESPONSE","CLIENT_QUERY"))
+| eval evt=if(match(operation,"_RESPONSE$"),"response","query"), leg=lower(replace(operation,"_(QUERY|RESPONSE)$",""))
+| eval receiver=case(source="dnstap:vector","Vector",source="dnstap:dnscollector","DNS-collector",true(),source)
+| rex "query:\s+(?&lt;qname&gt;\S+)\s+IN"
+| rex "client\s+(?&lt;client&gt;\d{1,3}(?:\.\d{1,3}){3})"
+| search qname="$domain$" client="$client$"
+| where $legwhere$ AND evt="query"
+| timechart span=$span$ count by receiver
+| foreach * [eval &lt;&lt;FIELD&gt;&gt;=round('&lt;&lt;FIELD&gt;&gt;'/_span,2)] | fields - _span</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">queries/sec</option>
+        <option name="charting.fieldColors">{"Vector":"#1f78b4","DNS-collector":"#33a02c"}</option>
+      </chart>
+    </panel>
+  </row>
+
+  <!-- ── Row 3: rcode + qtype ─────────────────────────────────────────────── -->
+  <row>
+    <panel>
+      <title>Responses by rcode</title>
+      <chart>
+        <search>
+          <query>index=mi_dhcp $srcfilter$
+| rex "(?&lt;operation&gt;(?:CLIENT|RESOLVER|AUTH|FORWARDER)_(?:QUERY|RESPONSE))"
+| eval operation=coalesce(operation, if(match(_raw,"response:"),"CLIENT_RESPONSE","CLIENT_QUERY"))
+| eval evt=if(match(operation,"_RESPONSE$"),"response","query"), leg=lower(replace(operation,"_(QUERY|RESPONSE)$",""))
+| rex "query:\s+(?&lt;qname&gt;\S+)\s+IN"
+| rex "client\s+(?&lt;client&gt;\d{1,3}(?:\.\d{1,3}){3})"
+| rex "(?:_RESPONSE\s+|response:\s+)(?&lt;rcode&gt;[A-Z]+)"
+| search qname="$domain$" client="$client$"
+| where $legwhere$ AND evt="response"
+| timechart span=$span$ count by rcode</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.fieldColors">{"NXDOMAIN":"#dc4e41","NOERROR":"#53a051","SERVFAIL":"#f8be34"}</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Queries by type</title>
+      <chart>
+        <search>
+          <query>index=mi_dhcp $srcfilter$
+| rex "(?&lt;operation&gt;(?:CLIENT|RESOLVER|AUTH|FORWARDER)_(?:QUERY|RESPONSE))"
+| eval operation=coalesce(operation, if(match(_raw,"response:"),"CLIENT_RESPONSE","CLIENT_QUERY"))
+| eval evt=if(match(operation,"_RESPONSE$"),"response","query"), leg=lower(replace(operation,"_(QUERY|RESPONSE)$",""))
+| rex "query:\s+(?&lt;qname&gt;\S+)\s+IN\s+(?&lt;qtype&gt;[A-Z0-9]+)"
+| rex "client\s+(?&lt;client&gt;\d{1,3}(?:\.\d{1,3}){3})"
+| search qname="$domain$" client="$client$"
+| where $legwhere$ AND evt="query"
+| timechart span=$span$ count by qtype</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+      </chart>
+    </panel>
+  </row>
+
+  <!-- ── Row 4: top domains + top clients ─────────────────────────────────── -->
+  <row>
+    <panel>
+      <title>Top 10 domains</title>
+      <table>
+        <search>
+          <query>index=mi_dhcp $srcfilter$
+| rex "(?&lt;operation&gt;(?:CLIENT|RESOLVER|AUTH|FORWARDER)_(?:QUERY|RESPONSE))"
+| eval operation=coalesce(operation, if(match(_raw,"response:"),"CLIENT_RESPONSE","CLIENT_QUERY"))
+| eval evt=if(match(operation,"_RESPONSE$"),"response","query"), leg=lower(replace(operation,"_(QUERY|RESPONSE)$",""))
+| rex "query:\s+(?&lt;qname&gt;\S+)\s+IN"
+| rex "client\s+(?&lt;client&gt;\d{1,3}(?:\.\d{1,3}){3})"
+| search qname="$domain$" client="$client$"
+| where $legwhere$ AND evt="query"
+| top limit=10 qname showperc=true</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <drilldown>
+          <set token="form.domain">$click.value$</set>
+        </drilldown>
+      </table>
+    </panel>
+    <panel>
+      <title>Top 10 clients</title>
+      <table>
+        <search>
+          <query>index=mi_dhcp $srcfilter$
+| rex "(?&lt;operation&gt;(?:CLIENT|RESOLVER|AUTH|FORWARDER)_(?:QUERY|RESPONSE))"
+| eval operation=coalesce(operation, if(match(_raw,"response:"),"CLIENT_RESPONSE","CLIENT_QUERY"))
+| eval evt=if(match(operation,"_RESPONSE$"),"response","query"), leg=lower(replace(operation,"_(QUERY|RESPONSE)$",""))
+| rex "query:\s+(?&lt;qname&gt;\S+)\s+IN"
+| rex "client\s+(?&lt;client&gt;\d{1,3}(?:\.\d{1,3}){3})"
+| search qname="$domain$" client="$client$"
+| where $legwhere$ AND evt="query"
+| top limit=10 client showperc=true</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <drilldown>
+          <set token="form.client">$click.value$</set>
+        </drilldown>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ── Row 5: raw events (respects every filter) ────────────────────────── -->
+  <row>
+    <panel>
+      <title>Matching events (latest 100)</title>
+      <table>
+        <search>
+          <query>index=mi_dhcp $srcfilter$
+| rex "(?&lt;operation&gt;(?:CLIENT|RESOLVER|AUTH|FORWARDER)_(?:QUERY|RESPONSE))"
+| eval operation=coalesce(operation, if(match(_raw,"response:"),"CLIENT_RESPONSE","CLIENT_QUERY"))
+| eval evt=if(match(operation,"_RESPONSE$"),"response","query"), leg=lower(replace(operation,"_(QUERY|RESPONSE)$",""))
+| eval receiver=case(source="dnstap:vector","Vector",source="dnstap:dnscollector","DNS-collector",true(),source)
+| rex "query:\s+(?&lt;qname&gt;\S+)\s+IN\s+(?&lt;qtype&gt;[A-Z0-9]+)"
+| rex "client\s+(?&lt;client&gt;\d{1,3}(?:\.\d{1,3}){3})"
+| rex "(?:_RESPONSE\s+|response:\s+)(?&lt;rcode&gt;[A-Z]+)"
+| search qname="$domain$" client="$client$"
+| where $legwhere$
+| sort - _time
+| table _time receiver leg operation client qname qtype rcode
+| head 100</query>
+          <earliest>$tspan.earliest$</earliest>
+          <latest>$tspan.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">20</option>
+      </table>
+    </panel>
+  </row>
+</form>

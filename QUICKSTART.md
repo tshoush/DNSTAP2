@@ -215,13 +215,26 @@ NIOS_LOG_PATH=/var/log/dnscollector/nios.log VECTOR_NIOS_LOG_PATH=/var/log/dnsta
   SPLUNK_IDX_ADDR=<indexer>:8005 SPLUNK_INDEX=mi_dhcp sudo -E ./scripts/install_splunk_uf.sh
 ```
 
-A ready-made overview dashboard (QPS, top domains, top recursive clients,
-cache-hit %, NXDOMAIN, latency) is in `splunk/dns_dnstap_overview.xml` — POST it
-to `/servicesNS/admin/search/data/ui/views` (name `dns_dnstap_overview`).
-Cache-hit is derived from response latency (&lt;2ms = answered from cache):
-NIOS dnstap only emits client query/response events, so resolver-ratio math is
-not possible; the DNS-collector `latency` transform must be enabled (the
-installer does this).
+Ready-made dashboards live in [`splunk/`](splunk/) (see [`splunk/README.md`](splunk/README.md)
+for the full catalog and import steps). Pick by which index your events land in:
+
+| Dashboard | Index | Use when |
+|---|---|---|
+| `dns_dnstap_overview.xml` | `dns_dnstap` (flat-json) | HEC / SC4S path with JSON fields (`dnstap.identity`, `dns.rcode`) |
+| `dns_dnstap_ab_overview.xml` | `mi_dhcp` (UF text) | POC A/B — Vector (`:6000`) vs DNS-collector (`:6001`) side by side |
+| `dns_dnstap_filterable.xml` | `mi_dhcp` (UF text) | POC — filter by **Receiver / DNS leg / domain / client IP** |
+
+The two `mi_dhcp` boards parse the NIOS-style **text** line with search-time
+`rex` (handling `CLIENT_*` and `RESOLVER_*` legs), so they need no props/transforms
+on the indexer; they split Vector vs DNS-collector on the `source` field
+(`dnstap:vector` / `dnstap:dnscollector`). Import any of them via Splunk UI
+(Dashboards → Create → Classic → Source, paste the XML) or POST to
+`/servicesNS/admin/search/data/ui/views`.
+
+Cache-hit (in the flat-json board) is derived from response latency (&lt;2ms =
+answered from cache): NIOS dnstap only emits client query/response events, so
+resolver-ratio math is not possible; the DNS-collector `latency` transform must
+be enabled (the installer does this).
 
 ---
 
@@ -436,4 +449,5 @@ PY
 | `check_infoblox.py` 0 dnstap fields | NIOS build doesn't expose dnstap via WAPI | Enable in Grid Manager UI, or upgrade NIOS |
 | Vector starts but `events.jsonl` stays empty | InfoBlox not pointed at this host, or firewall | Check `receiver.advertised_host`; allow inbound TCP/6000 from grid master |
 | Prometheus target shows `down` | metrics port not listening | `curl localhost:9598/metrics`; check `journalctl -u vector` |
+| Vector `active` but `nios.log` frozen / Splunk `source="dnstap:vector"` empty; sim prints `no ACCEPT within timeout` | Vector's framestream **accept queue wedged** — `ss -ltnp \| grep 6000` shows Recv-Q > backlog (e.g. `129 / 128`) so it stops accepting connections | `sudo systemctl restart vector` (graceful stop waits ~60–90s; or force from a 2nd session: `sudo systemctl kill -s SIGKILL vector && sudo systemctl reset-failed vector && sudo systemctl start vector`). Then feed once and confirm Recv-Q is `0`. |
 | Permission denied writing `/etc/...` | running without sudo | Re-run with `sudo -E`, or relocate paths in `config.toml` |

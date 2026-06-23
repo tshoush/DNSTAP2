@@ -1,0 +1,68 @@
+# Splunk dashboards
+
+Ready-to-import Splunk **Classic (Simple XML)** dashboards for DNS dnstap
+telemetry. Pick by which **index** your events land in and what you want to do.
+
+| File | Index / format | Splits by | Purpose |
+|---|---|---|---|
+| [`dns_dnstap_overview.xml`](dns_dnstap_overview.xml) | `dns_dnstap`, `sourcetype=dnscollector:json` (flat-json) | `dnstap.identity` (DNS server) | Rich overview: QPS, top domains, rogue-client / DDoS hunting, cache-hit %, NXDOMAIN, latency. Uses native JSON fields. |
+| [`dns_dnstap_ab_overview.xml`](dns_dnstap_ab_overview.xml) | `mi_dhcp` (UF text lines) | `source` (receiver) | Port of the Grafana "DNS-collector Overview (+ A/B vs Vector)" board. Compares **Vector (`:6000`)** vs **DNS-collector (`:6001`)** side by side. |
+| [`dns_dnstap_filterable.xml`](dns_dnstap_filterable.xml) | `mi_dhcp` (UF text lines) | `source` (receiver) | Same data with interactive filters: **Receiver / DNS leg / domain / client IP** + time + granularity. Click pie/table rows to drill down. |
+
+## Which index do I have?
+
+- **`dns_dnstap`** — events arrive as **flat-json** (HEC, or a syslog/SC4S input).
+  Fields like `dnstap.identity`, `dnstap.operation`, `dns.rcode`, `network.query-ip`
+  are extracted by Splunk automatically. Use `dns_dnstap_overview.xml`.
+- **`mi_dhcp`** — events arrive as **NIOS-style text lines** shipped by a Splunk
+  Universal Forwarder monitoring `nios.log` (the POC path; the indexer only
+  exposes an S2S/splunktcp input). Fields are **not** pre-extracted, so the two
+  `mi_dhcp` dashboards do search-time `rex` on `_raw`. Use `dns_dnstap_ab_overview.xml`
+  or `dns_dnstap_filterable.xml`.
+
+## Vector vs DNS-collector (the A/B split)
+
+In the `mi_dhcp` path both receivers write to the same index, distinguished by
+the `source` field set in the UF monitor stanza:
+
+| Receiver | `source` | dnstap port | line format |
+|---|---|---|---|
+| Vector | `dnstap:vector` | `:6000` | `client <ip>#<port>` (byte-exact NIOS) |
+| DNS-collector | `dnstap:dnscollector` | `:6001` | `client <ip> <port>` (space-separated) |
+
+Filter / split on `source` (or the `receiver` eval the dashboards add). The
+search-time extractions handle **both** line formats and **both** the
+`CLIENT_*` (client-facing) and `RESOLVER_*` (recursion) legs — the DNS-leg
+filter defaults to client-facing so per-second rates aren't inflated by counting
+the resolver leg.
+
+Quick A/B sanity check in the search bar:
+
+```spl
+index=mi_dhcp source IN ("dnstap:vector","dnstap:dnscollector") earliest=-15m
+| eval receiver=case(source="dnstap:vector","Vector",source="dnstap:dnscollector","DNS-collector",true(),source)
+| stats count, max(_time) as last by receiver | convert ctime(last)
+```
+
+## Importing
+
+**Splunk UI:** Dashboards → Create New Dashboard → **Classic** → name it →
+**Source** (`</>`) → delete the stub → paste the whole XML file → **Save**.
+(Paste XML only into the *Source* editor, never the search bar.)
+
+**REST API:**
+
+```bash
+curl -k -u <user>:<pass> \
+  https://<splunk-host>:8089/servicesNS/admin/search/data/ui/views \
+  -d "name=dns_dnstap_filterable" \
+  --data-urlencode "eai:data@dns_dnstap_filterable.xml"
+```
+
+## Notes
+
+- The `mi_dhcp` `rex` patterns are derived from the two receiver line formats; if
+  a future NIOS/Vector/DNS-collector build changes the line, a panel may come up
+  empty — re-check with the sanity query above and adjust the `rex`.
+- `tests/test_splunk_dashboards.py` validates these files stay well-formed and
+  keep referencing the expected index/source values.
