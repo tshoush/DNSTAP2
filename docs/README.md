@@ -22,6 +22,7 @@
 ## Demo material
 | Document | Purpose |
 |---|---|
+| [demo-a2z-animated.html](demo-a2z-animated.html) | **End-to-end animated & narrated demo (A→Z)** — the full story: problem → dnstap → both receivers (Vector :6000 / DNS-collector :6001) → Splunk `mi_dhcp` → dashboards & filtering → the real accept-queue wedge we fixed → clone-and-run. Animated pipeline, A/B bar race, live wedge visualization; browser TTS + auto-present |
 | [demo-presentation.html](demo-presentation.html) | Self-contained demo deck — data flow & component roles |
 | [demo-presentation-with-voice.html](demo-presentation-with-voice.html) | Narrated version (browser TTS, speed control, auto-present) |
 | [testing-presentation-with-voice.html](testing-presentation-with-voice.html) | **Narrated walkthrough of the evidence test** — single-server method, the M0→M0' run sequence, what's measured, the harness, and the go/no-go. Browser TTS + auto-present, and an **in-browser review/edit mode** (press `E`): edit narration + slide text, auto-saved locally, then **Export edits** (JSON suggestions) or **Export deck** (standalone HTML with edits baked in) |

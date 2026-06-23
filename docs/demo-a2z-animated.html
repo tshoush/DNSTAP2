@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DNSTAP2 — A→Z Animated & Narrated Demo</title>
+<style>
+  :root{
+    --bg:#0b1220; --bg2:#0f1830; --panel:#16223f; --panel2:#1c2c52;
+    --ink:#e8eefc; --muted:#9fb0d0; --line:#28395f;
+    --vec:#1f9bff; --dc:#3ddc84; --a1:#36d1c4; --a2:#f5a623; --a3:#7c9cff; --a4:#ff6b81; --good:#3ddc84;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1200px 700px at 70% -10%, #16244a 0%, var(--bg) 60%) fixed;
+    color:var(--ink); font:16px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    overflow:hidden;
+  }
+  .deck{position:fixed;inset:0}
+  .slide{position:absolute;inset:0;display:none;flex-direction:column;padding:46px 60px 96px;animation:fade .4s ease}
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+  h1{font-size:52px;margin:0 0 6px;letter-spacing:-.5px}
+  h2{font-size:30px;margin:0 0 16px;letter-spacing:-.3px}
+  h2 .tag{font-size:13px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:2px;display:block;margin-bottom:6px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  .lead{font-size:20px;color:var(--muted);max-width:980px}
+  .pill{display:inline-block;padding:3px 11px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.5px}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .port{font-family:ui-monospace,monospace;font-weight:700;color:#04121a;background:var(--a1);padding:2px 8px;border-radius:7px;font-size:13px}
+  .port.vec{background:var(--vec);color:#04121a} .port.dc{background:var(--dc);color:#04121a}
+  .port.amber{background:var(--a2)} .port.red{background:var(--a4);color:#2a0410}
+  table{border-collapse:collapse;width:100%;font-size:14.5px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:1px}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .three{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .card{background:linear-gradient(180deg,var(--panel),var(--bg2));border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .card h3{margin:0 0 6px;font-size:18px}.card small{color:var(--muted)}
+  ul.clean{margin:6px 0;padding-left:20px} ul.clean li{margin:7px 0}
+  .kbd{font-family:ui-monospace,monospace;background:#0a1326;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:1px 7px;font-size:12px}
+  .big{font-size:68px;font-weight:800;line-height:1;background:linear-gradient(90deg,var(--a3),var(--a1));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .grad{background:linear-gradient(90deg,var(--vec),var(--a1) 50%,var(--dc));-webkit-background-clip:text;background-clip:text;color:transparent}
+
+  /* ---------- animated pipeline ---------- */
+  .pipe{display:flex;align-items:center;gap:0;margin-top:26px;flex-wrap:nowrap}
+  .stage{flex:1 1 0;min-width:120px;background:linear-gradient(180deg,var(--panel),var(--bg2));border:1px solid var(--line);
+         border-radius:14px;padding:16px 14px;text-align:center;position:relative;animation:breathe 3.2s ease-in-out infinite}
+  .stage .ic{font-size:30px}
+  .stage h3{margin:7px 0 3px;font-size:15px}
+  .stage p{margin:0;font-size:11.5px;color:var(--muted);line-height:1.3}
+  .stage .who{font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--a1);margin-top:4px}
+  @keyframes breathe{0%,100%{box-shadow:0 0 0 rgba(54,209,196,0)}50%{box-shadow:0 0 26px rgba(54,209,196,.18)}}
+  .wire{flex:0 0 96px;height:4px;position:relative;align-self:center;margin:0 -2px;
+        background:linear-gradient(90deg,var(--line),var(--line));border-radius:3px;overflow:visible}
+  .wire .lab{position:absolute;top:-26px;left:50%;transform:translateX(-50%);font-size:10px;font-weight:800;
+             text-transform:uppercase;letter-spacing:.6px;color:var(--muted);white-space:nowrap}
+  .pkt{position:absolute;top:50%;left:0;width:11px;height:11px;border-radius:50%;
+       margin-top:-5.5px;background:var(--a1);box-shadow:0 0 12px var(--a1);animation:flow 1.8s linear infinite}
+  .pkt.b{animation-delay:.6s;background:var(--a3);box-shadow:0 0 12px var(--a3)}
+  .pkt.c{animation-delay:1.2s;background:var(--a2);box-shadow:0 0 12px var(--a2)}
+  @keyframes flow{from{left:-6px;opacity:0}10%{opacity:1}90%{opacity:1}to{left:96px;opacity:0}}
+  .fan{display:flex;flex-direction:column;gap:8px;flex:1 1 0;min-width:130px}
+  .fan .stage{animation-duration:3.8s}
+
+  /* ---------- A/B bar race ---------- */
+  .race{margin-top:24px;display:flex;flex-direction:column;gap:22px;max-width:1000px}
+  .lane{display:flex;align-items:center;gap:14px}
+  .lane .name{width:150px;font-weight:800;font-size:15px}
+  .lane .track{flex:1;height:30px;background:#0a1326;border:1px solid var(--line);border-radius:8px;overflow:hidden;position:relative}
+  .lane .fill{height:100%;border-radius:7px 0 0 7px;position:relative;transition:width .25s linear}
+  .lane.v .name{color:var(--vec)} .lane.v .fill{background:linear-gradient(90deg,#0b4a86,var(--vec))}
+  .lane.d .name{color:var(--dc)}  .lane.d .fill{background:linear-gradient(90deg,#0d6b3f,var(--dc))}
+  .lane .num{width:96px;text-align:right;font-family:ui-monospace,monospace;font-weight:800;font-size:18px}
+  .shine{position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.25),transparent);
+         transform:translateX(-100%);animation:shine 1.4s linear infinite}
+  @keyframes shine{to{transform:translateX(100%)}}
+
+  /* ---------- accept-queue wedge viz ---------- */
+  .queue{display:flex;gap:5px;margin:18px 0 6px;flex-wrap:wrap;max-width:980px}
+  .slot{width:20px;height:26px;border-radius:4px;background:#0a1326;border:1px solid var(--line)}
+  .slot.fill{background:var(--vec);box-shadow:0 0 8px rgba(31,155,255,.5);animation:pop .3s ease}
+  .slot.over{background:var(--a4);box-shadow:0 0 12px var(--a4);animation:pop .3s ease}
+  @keyframes pop{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
+  .qmeter{font-family:ui-monospace,monospace;font-weight:800;font-size:18px;margin-top:6px}
+  .ok{color:var(--good)} .bad{color:var(--a4)}
+
+  /* ---------- filter funnel ---------- */
+  .funnel{display:flex;align-items:center;gap:18px;margin-top:22px;flex-wrap:wrap}
+  .chip{padding:7px 14px;border-radius:10px;border:1px solid var(--line);background:var(--panel);font-weight:700;font-size:13px;
+        animation:floaty 3s ease-in-out infinite}
+  .chip:nth-child(2){animation-delay:.4s}.chip:nth-child(3){animation-delay:.8s}.chip:nth-child(4){animation-delay:1.2s}
+  @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+
+  /* ---------- floating background packets (title) ---------- */
+  .bgfx{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:-1}
+  .bgfx i{position:absolute;width:8px;height:8px;border-radius:50%;background:var(--a1);opacity:.5;
+          animation:rise 7s linear infinite}
+  @keyframes rise{from{transform:translateY(20px);opacity:0}10%{opacity:.6}to{transform:translateY(-820px);opacity:0}}
+
+  .codebox{background:#08101f;border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-family:ui-monospace,monospace;
+           font-size:13px;line-height:1.7;overflow:auto;color:#cfe0ff}
+  .codebox .c{color:#5d7299} .codebox .v{color:var(--vec)} .codebox .d{color:var(--dc)} .codebox .k{color:var(--a2)}
+  .tick{color:var(--good)} .cross{color:var(--a4)}
+
+  /* ---------- chrome: controls, dots, notes ---------- */
+  .topbar{position:fixed;top:0;left:0;right:0;height:5px;background:#0a1326;z-index:30}
+  #bar{height:100%;width:7%;background:linear-gradient(90deg,var(--vec),var(--a1),var(--dc));transition:width .3s}
+  .brand{position:fixed;top:16px;left:24px;font-weight:800;letter-spacing:.5px;font-size:14px;color:var(--muted);z-index:20}
+  .brand b{color:var(--ink)}
+  .ctl{position:fixed;left:0;right:0;bottom:0;height:74px;background:linear-gradient(0deg,#0a1326,rgba(10,19,38,.7));
+       border-top:1px solid var(--line);display:flex;align-items:center;gap:10px;padding:0 18px;z-index:20}
+  .btn{appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-weight:700;
+       padding:9px 14px;border-radius:10px;cursor:pointer;font-size:13.5px}
+  .btn:hover{background:var(--panel2)} .btn.on{background:var(--a1);color:#04121a;border-color:var(--a1)}
+  .btn.present.on{background:var(--a2);color:#2a1500;border-color:var(--a2)}
+  .spacer{flex:1}
+  select,input[type=range]{accent-color:var(--a1)}
+  select{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px;font-size:12.5px;max-width:230px}
+  .count{font-family:ui-monospace,monospace;color:var(--muted);font-size:13px;min-width:64px;text-align:center}
+  .dots{position:fixed;right:18px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:9px;z-index:20}
+  .dots i{width:9px;height:9px;border-radius:50%;background:#2a3a5e;cursor:pointer;display:block;transition:.2s}
+  .dots i.on{background:var(--a1);transform:scale(1.35)}
+  .notes{position:fixed;left:18px;right:18px;bottom:74px;max-height:34vh;overflow:auto;background:rgba(8,16,31,.92);
+         border:1px solid var(--line);border-bottom:none;border-radius:12px 12px 0 0;padding:12px 16px;transform:translateY(101%);
+         transition:transform .3s;z-index:19}
+  .notes.show{transform:none}
+  .notes.speaking{border-color:var(--a1);box-shadow:0 -6px 30px rgba(54,209,196,.12)}
+  .notes .h{display:flex;justify-content:space-between;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px}
+  .notes .t{font-size:15px;line-height:1.6;color:var(--ink)}
+  .hint{position:fixed;bottom:84px;right:20px;color:var(--muted);font-size:11.5px;z-index:18}
+</style>
+</head>
+<body>
+<div class="topbar"><div id="bar"></div></div>
+<div class="brand"><b>DNSTAP2</b> · A→Z animated demo</div>
+
+<div class="deck" id="deck">
+
+  <!-- 0 — TITLE -->
+  <section class="slide active">
+    <div class="bgfx" id="bgfx"></div>
+    <div style="margin:auto;text-align:center">
+      <div class="pill" style="background:#13325c;color:#bcd2ff;margin-bottom:14px">ALWAYS-ON · OUT-OF-BAND · NATIVE</div>
+      <h1 class="grad">DNS telemetry, from <span style="white-space:nowrap">A → Z</span></h1>
+      <p class="lead" style="margin:14px auto 0">InfoBlox NIOS <b>dnstap</b> → two receivers (<span class="port vec">Vector :6000</span> &nbsp;<span class="port dc">DNS-collector :6001</span>) → <b>Splunk</b>, Prometheus &amp; Grafana. Animated, narrated, end-to-end.</p>
+      <p class="muted" style="margin-top:22px">Press <span class="kbd">→</span> to advance · <span class="kbd">N</span> narrate · <span class="kbd">A</span> auto-present</p>
+    </div>
+  </section>
+
+  <!-- 1 — THE PROBLEM -->
+  <section class="slide">
+    <h2><span class="tag">A · The problem</span>Query logging makes DNS slower</h2>
+    <p class="lead">Traditional DNS query logging runs <b>inside</b> the resolution path. Every query pays a tax, so teams switch it on only to chase an incident — and the data you need is missing exactly when it matters.</p>
+    <div class="pipe" style="max-width:760px">
+      <div class="stage"><div class="ic">💻</div><h3>Client</h3><p>asks a question</p></div>
+      <div class="wire"><div class="lab" style="color:var(--a4)">slowed by logging</div><span class="pkt red" style="background:var(--a4);box-shadow:0 0 12px var(--a4)"></span></div>
+      <div class="stage" style="border-color:var(--a4)"><div class="ic">🐢</div><h3>Resolver + in-path log</h3><p>writes every query to disk before answering</p></div>
+      <div class="wire"><span class="pkt red" style="background:var(--a4);box-shadow:0 0 12px var(--a4);animation-delay:.9s"></span></div>
+      <div class="stage"><div class="ic">💻</div><h3>Answer</h3><p>arrives late</p></div>
+    </div>
+    <p class="muted" style="margin-top:22px">The fix isn't a faster log — it's getting the copy <b>out of the path entirely</b>.</p>
+  </section>
+
+  <!-- 2 — WHAT IS DNSTAP -->
+  <section class="slide">
+    <h2><span class="tag">B · The idea</span>dnstap copies events to a side channel</h2>
+    <p class="lead">The DNS server emits a structured copy of every query and response <b>out of band</b> — negligible impact on resolution, so it's safe to leave on <b>permanently</b>.</p>
+    <div class="pipe" style="max-width:900px">
+      <div class="stage"><div class="ic">💻</div><h3>Client</h3><p>query</p></div>
+      <div class="wire"><div class="lab">fast path</div><span class="pkt" style="background:var(--good);box-shadow:0 0 12px var(--good)"></span></div>
+      <div class="stage" style="border-color:var(--good)"><div class="ic">🟢</div><h3>NIOS resolves</h3><p>answer unaffected</p><div class="who" style="color:var(--good)">in-path</div></div>
+      <div class="wire"><div class="lab" style="color:var(--a1)">dnstap copy</div><span class="pkt"></span><span class="pkt b"></span></div>
+      <div class="stage"><div class="ic">📡</div><h3>Telemetry</h3><p>out-of-band stream</p><div class="who">side channel</div></div>
+    </div>
+    <p class="muted" style="margin-top:20px"><b>This project replaces reactive query logging</b> with always-on, out-of-band dnstap telemetry.</p>
+  </section>
+
+  <!-- 3 — ARCHITECTURE A→Z -->
+  <section class="slide">
+    <h2><span class="tag">C · The whole pipeline</span>One query → many destinations</h2>
+    <div class="pipe">
+      <div class="stage" style="border-color:var(--a3)"><div class="ic">🧭</div><h3>InfoBlox NIOS</h3><p>emits dnstap per query/response</p><div class="who" style="color:var(--a3)">source</div></div>
+      <div class="wire"><div class="lab">Frame Streams / TCP</div><span class="pkt"></span><span class="pkt b"></span><span class="pkt c"></span></div>
+      <div class="fan">
+        <div class="stage" style="border-color:var(--vec)"><div class="ic">🟦</div><h3>Vector</h3><p><span class="port vec">:6000</span></p><div class="who" style="color:var(--vec)">receiver A</div></div>
+        <div class="stage" style="border-color:var(--dc)"><div class="ic">🟩</div><h3>DNS-collector</h3><p><span class="port dc">:6001</span></p><div class="who" style="color:var(--dc)">receiver B</div></div>
+      </div>
+      <div class="wire"><div class="lab">fan-out</div><span class="pkt"></span><span class="pkt b"></span></div>
+      <div class="fan">
+        <div class="stage" style="border-color:var(--a2)"><div class="ic">🔎</div><h3>Splunk</h3><p>forensics · <code>mi_dhcp</code></p><div class="who" style="color:var(--a2)">audit</div></div>
+        <div class="stage"><div class="ic">📈</div><h3>Prometheus</h3><p>metrics</p><div class="who">ops</div></div>
+        <div class="stage" style="border-color:var(--good)"><div class="ic">📊</div><h3>Grafana</h3><p>dashboards</p><div class="who" style="color:var(--good)">viz</div></div>
+      </div>
+    </div>
+    <p class="muted" style="margin-top:18px">Four stages: <b>source → transport &amp; receiver → storage → visualization</b>. Every box is a native binary — no Docker, no JVM.</p>
+  </section>
+
+  <!-- 4 — THE WIRE -->
+  <section class="slide">
+    <h2><span class="tag">D · On the wire</span>Frame Streams + Protocol Buffers</h2>
+    <div class="two">
+      <div>
+        <p class="lead">dnstap travels as <b>Frame Streams</b> (a binary, length-framed transport) carrying a <b>protobuf</b> payload. The DNS server <b>dials into</b> the receiver — so it's a single, unidirectional firewall rule.</p>
+        <ul class="clean muted">
+          <li><b>Fields:</b> client IP·port, qname, qtype, rcode, timing, operation (client vs resolver)</li>
+          <li><b>One rule:</b> DNS member → collector, TCP <span class="port vec">6000</span>/<span class="port dc">6001</span> inbound. No reverse path.</li>
+          <li><b>Interface:</b> default LAN1; enable MGMT to keep telemetry off the data plane.</li>
+        </ul>
+      </div>
+      <div class="codebox" style="align-self:start">
+<span class="c"># NIOS-style line the receivers emit</span>
+&lt;ts&gt; <span class="v">&lt;member&gt;</span> named[id]: client <span class="k">10.40.150.176#16707</span>
+  (cdn.fastly.net): query: cdn.fastly.net <span class="k">IN A</span>
+  response: <span class="tick">NOERROR</span>
+
+<span class="c"># operations carried in dnstap</span>
+CLIENT_QUERY · CLIENT_RESPONSE      <span class="c">← client-facing</span>
+RESOLVER_QUERY · RESOLVER_RESPONSE  <span class="c">← recursion leg</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 — TWO RECEIVERS BY DESIGN -->
+  <section class="slide">
+    <h2><span class="tag">E · Two receivers, by design</span>Vector and DNS-collector, side by side</h2>
+    <p class="lead">Both run as independent systemd services on <b>distinct ports / users / paths</b> — so you can A/B them or fall back instantly. They stay deliberately separate.</p>
+    <table style="margin-top:8px;max-width:1000px">
+      <tr><th></th><th style="color:var(--vec)">Vector</th><th style="color:var(--dc)">DNS-collector</th></tr>
+      <tr><td class="muted">dnstap port</td><td><span class="port vec">:6000</span></td><td><span class="port dc">:6001</span></td></tr>
+      <tr><td class="muted">metrics</td><td><code>:9598</code> · <code>dnstap_*</code></td><td><code>:9599</code> · <code>dnscollector_*</code></td></tr>
+      <tr><td class="muted">Splunk <code>source</code></td><td><code>dnstap:vector</code></td><td><code>dnstap:dnscollector</code></td></tr>
+      <tr><td class="muted">line format</td><td><code>client &lt;ip&gt;#&lt;port&gt;</code> (byte-exact NIOS)</td><td><code>client &lt;ip&gt; &lt;port&gt;</code></td></tr>
+    </table>
+    <p class="muted" style="margin-top:18px">The <code>source</code> field is the reliable A/B key — that's what every dashboard splits on.</p>
+  </section>
+
+  <!-- 6 — INFOBLOX CONFIG -->
+  <section class="slide">
+    <h2><span class="tag">F · Turn it on (InfoBlox side)</span>One member, one receiver, dry-run first</h2>
+    <div class="two">
+      <div>
+        <p class="lead">A NIOS member has <b>one</b> dnstap destination — point it at the collector and enable the legs you want.</p>
+        <table style="margin-top:6px">
+          <tr><th>leg</th><th>enabled</th></tr>
+          <tr><td>client query / response</td><td class="tick">✔ on</td></tr>
+          <tr><td>resolver query / response</td><td class="tick">✔ on</td></tr>
+          <tr><td>authoritative</td><td class="cross">✘ off</td></tr>
+        </table>
+        <p class="muted">Field names vary by NIOS build, so the script <b>discovers</b> them from the schema, <b>snapshots</b> state, and is <b>dry-run until <code>--apply</code></b>.</p>
+      </div>
+      <div class="codebox" style="align-self:start">
+<span class="c"># config.toml</span>
+[receiver]
+advertised_host = <span class="k">"172.25.15.234"</span>
+advertised_port = <span class="dc">6001</span>   <span class="c"># Vector path = 6000</span>
+
+<span class="c"># dry-run → review → apply</span>
+python scripts/configure_infoblox_dnstap.py \
+  --config config.toml --member <span class="v">&lt;FQDN&gt;</span>
+python scripts/configure_infoblox_dnstap.py \
+  --config config.toml --member <span class="v">&lt;FQDN&gt;</span> <span class="k">--apply</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 — SPLUNK PATH -->
+  <section class="slide">
+    <h2><span class="tag">G · The Splunk path</span>UF → S2S → <code>index=mi_dhcp</code></h2>
+    <div class="pipe" style="max-width:1040px">
+      <div class="stage" style="border-color:var(--vec)"><div class="ic">🟦</div><h3>Vector</h3><p>writes <code>nios.log</code></p></div>
+      <div class="wire"><span class="pkt"></span></div>
+      <div class="stage" style="border-color:var(--dc)"><div class="ic">🟩</div><h3>DNS-collector</h3><p>writes <code>nios.log</code></p></div>
+      <div class="wire"><div class="lab">monitor</div><span class="pkt b"></span></div>
+      <div class="stage"><div class="ic">🚚</div><h3>Splunk UF</h3><p>S2S :8005 · routes only dnstap monitors</p></div>
+      <div class="wire"><div class="lab">index</div><span class="pkt c"></span></div>
+      <div class="stage" style="border-color:var(--a2)"><div class="ic">🔎</div><h3>mi_dhcp</h3><p>NIOS text lines · <code>infoblox:dns</code></p></div>
+    </div>
+    <p class="muted" style="margin-top:18px">The indexer only exposes an <b>S2S (splunktcp)</b> input, so a Universal Forwarder bridges <code>nios.log</code> → <code>mi_dhcp</code>. Each receiver is tagged with its own <code>source</code>, keeping them distinct in one index.</p>
+  </section>
+
+  <!-- 8 — A/B LIVE RACE -->
+  <section class="slide">
+    <h2><span class="tag">H · A/B in motion</span>Vector vs DNS-collector, same traffic</h2>
+    <p class="lead">Feed both ports and watch them climb together. Identical decode, two engines — proof the pipeline is engine-agnostic.</p>
+    <div class="race">
+      <div class="lane v"><div class="name">Vector <span class="muted" style="font-weight:500">:6000</span></div>
+        <div class="track"><div class="fill" id="raceV" style="width:6%"><span class="shine"></span></div></div><div class="num" id="numV">0</div></div>
+      <div class="lane d"><div class="name">DNS-collector <span class="muted" style="font-weight:500">:6001</span></div>
+        <div class="track"><div class="fill" id="raceD" style="width:6%"><span class="shine"></span></div></div><div class="num" id="numD">0</div></div>
+    </div>
+    <div class="codebox" style="margin-top:24px;max-width:1000px">
+<span class="c">index=mi_dhcp source IN ("dnstap:vector","dnstap:dnscollector") earliest=-15m</span>
+| eval receiver=case(source="dnstap:vector",<span class="v">"Vector"</span>,source="dnstap:dnscollector",<span class="d">"DNS-collector"</span>,true(),source)
+| stats count, max(_time) as last by receiver | convert ctime(last)
+    </div>
+  </section>
+
+  <!-- 9 — DASHBOARDS -->
+  <section class="slide">
+    <h2><span class="tag">I · The dashboards</span>Three boards, pick by index</h2>
+    <div class="three">
+      <div class="card"><h3>📊 Overview</h3><small>index <code>dns_dnstap</code> · flat-json</small>
+        <ul class="clean muted"><li>QPS, top domains</li><li>cache-hit %, NXDOMAIN, latency</li><li>rogue-client / DDoS hunting</li></ul></div>
+      <div class="card" style="border-color:var(--vec)"><h3>🆚 A/B Overview</h3><small>index <code>mi_dhcp</code> · text</small>
+        <ul class="clean muted"><li>Vector vs DNS-collector</li><li>QPS, rcodes, qtypes</li><li>Grafana board, ported</li></ul></div>
+      <div class="card" style="border-color:var(--good)"><h3>🎛️ Filterable</h3><small>index <code>mi_dhcp</code> · text</small>
+        <ul class="clean muted"><li>Receiver / leg / domain / client</li><li>click-to-drill panels</li><li>latest-100 event table</li></ul></div>
+    </div>
+    <p class="muted" style="margin-top:20px">The <code>mi_dhcp</code> boards parse the NIOS line with <b>search-time <code>rex</code></b> — no props/transforms on the indexer — and handle both <code>CLIENT_*</code> and <code>RESOLVER_*</code> legs.</p>
+  </section>
+
+  <!-- 10 — FILTERING -->
+  <section class="slide">
+    <h2><span class="tag">J · Slice it any way</span>Filter the whole board at once</h2>
+    <p class="lead">Every panel obeys the same tokens. Flip Receiver to isolate an engine; set DNS leg to client-facing so per-second rates aren't inflated by the recursion leg.</p>
+    <div class="funnel">
+      <span class="chip" style="border-color:var(--vec)">Receiver ▾ <b style="color:var(--vec)">Vector</b></span>
+      <span style="color:var(--muted);font-size:22px">→</span>
+      <span class="chip">DNS leg ▾ <b>Client-facing</b></span>
+      <span style="color:var(--muted);font-size:22px">→</span>
+      <span class="chip">Domain ▾ <b>*marriott*</b></span>
+      <span style="color:var(--muted);font-size:22px">→</span>
+      <span class="chip" style="border-color:var(--good)">Client ▾ <b>10.40.150.176</b></span>
+    </div>
+    <div class="codebox" style="margin-top:24px;max-width:1000px">
+index=mi_dhcp <span class="v">source="dnstap:vector"</span>
+| ... | where <span class="k">leg="client"</span> | search qname=<span class="k">"*marriott*"</span> client=<span class="k">"10.40.150.176"</span>
+    </div>
+  </section>
+
+  <!-- 11 — THE WEDGE (debug story) -->
+  <section class="slide">
+    <h2><span class="tag">K · A real failure, solved</span>The Vector accept-queue wedge</h2>
+    <p class="lead">Vector was <code>active</code> and listening — but Splunk showed <b>zero</b> Vector events. The accept queue had filled and it stopped accepting connections.</p>
+    <div class="queue" id="queue"></div>
+    <div class="qmeter" id="qmeter">Recv-Q <span id="qval">0</span> / 128 backlog &nbsp;<span id="qstat" class="ok">accepting ✔</span></div>
+    <div class="two" style="margin-top:14px">
+      <div class="codebox">
+<span class="c"># the smoking gun</span>
+$ ss -ltnp | grep 6000
+LISTEN <span class="cross">129  128</span>  *:6000  users:("vector")
+       <span class="c">↑Recv-Q ↑backlog → overflow, frames dropped</span>
+      </div>
+      <div class="codebox">
+<span class="c"># the fix</span>
+$ sudo systemctl restart vector
+$ ss -ltnp | grep 6000
+LISTEN <span class="tick">0    128</span>  *:6000   <span class="tick"># drained</span>
+$ ... <span class="tick">dnstap:vector now flowing</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 — NATIVE & PLATFORM -->
+  <section class="slide">
+    <h2><span class="tag">L · Built to fit the host</span>Native binaries, platform-aware</h2>
+    <div class="two">
+      <div>
+        <p class="lead">No containers, no Java. Stdlib-only Python orchestration. Installers detect the host and adapt — you don't branch on platform yourself.</p>
+        <ul class="clean muted">
+          <li><b>glibc &lt; 2.28</b> (RHEL 7's 2.17) → install the <b>musl</b> Vector build automatically</li>
+          <li><b>systemd version</b> gates unit directives (<code>StateDirectory</code> 235+, ambient caps 229+); RHEL 7's 219 gets a trimmed unit</li>
+          <li><b>Secrets via env</b> only — never committed; InfoBlox writes are dry-run + snapshot</li>
+        </ul>
+      </div>
+      <div class="three" style="grid-template-columns:1fr 1fr;align-content:start">
+        <div class="card" style="text-align:center"><div style="font-size:30px">🐧</div><h3 style="margin:6px 0">RHEL 7→9</h3><small>musl + systemd-aware</small></div>
+        <div class="card" style="text-align:center"><div style="font-size:30px">🪟</div><h3 style="margin:6px 0">WSL2</h3><small>mirrored net / portproxy</small></div>
+        <div class="card" style="text-align:center"><div style="font-size:30px">🍎</div><h3 style="margin:6px 0">macOS</h3><small>foreground mode</small></div>
+        <div class="card" style="text-align:center"><div style="font-size:30px">🧪</div><h3 style="margin:6px 0">44 tests</h3><small>fixtures, no real host</small></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 13 — PICK IT UP ANYWHERE -->
+  <section class="slide">
+    <h2><span class="tag">Y · Take it with you</span>Clone &amp; run from any system</h2>
+    <div class="codebox" style="max-width:1040px">
+<span class="c"># 1 — get the repo (Marriott git)</span>
+git clone https://tmsho448@git.marriott.com/tmsho448/<span class="k">DNSTAP</span>.git
+cd DNSTAP && git log --oneline -1
+
+<span class="c"># 2 — the dashboards need no tooling — just import the XML</span>
+ls splunk/*.xml          <span class="c"># overview · ab_overview · filterable</span>
+cat splunk/README.md
+
+<span class="c"># 3 — (optional) run the test suite on a clean checkout</span>
+./scripts/bootstrap.sh
+.venv/bin/python -m pytest tests/test_splunk_dashboards.py -q   <span class="tick"># 8 passed</span>
+
+<span class="c"># 4 — load a dashboard straight into Splunk</span>
+curl -k -u USER:PASS https://SPLUNK:8089/servicesNS/admin/search/data/ui/views \
+  -d "name=dns_dnstap_filterable" --data-urlencode "eai:data@splunk/dns_dnstap_filterable.xml"
+    </div>
+  </section>
+
+  <!-- 14 — SUMMARY -->
+  <section class="slide">
+    <h2><span class="tag">Z · From A to Z</span>What you just saw</h2>
+    <div class="three">
+      <div class="card"><h3 style="color:var(--a1)">Always-on</h3><small>Out-of-band dnstap replaces reactive query logging — zero load worth turning off.</small></div>
+      <div class="card"><h3 style="color:var(--vec)">A/B by design</h3><small>Vector :6000 and DNS-collector :6001 side by side, split on <code>source</code>.</small></div>
+      <div class="card"><h3 style="color:var(--a2)">Splunk-native</h3><small><code>index=mi_dhcp</code>, NIOS text lines, three dashboards, filter by anything.</small></div>
+      <div class="card"><h3 style="color:var(--good)">Battle-tested</h3><small>Real wedge found &amp; fixed; documented + regression-tested.</small></div>
+      <div class="card"><h3 style="color:var(--a3)">Native &amp; portable</h3><small>No Docker/JVM; RHEL 7 → modern Linux; one firewall rule.</small></div>
+      <div class="card"><h3 style="color:var(--ink)">Clone &amp; go</h3><small>On git.marriott.com — pull from any box and import.</small></div>
+    </div>
+    <p class="lead" style="margin-top:24px">From a single DNS query on InfoBlox NIOS to a filtered row in Splunk — continuous, out of band, and native. <b>Thank you.</b></p>
+  </section>
+
+</div>
+
+<div class="dots" id="dots"></div>
+<div class="hint">Space/→ next · ← back · <b>N</b> narrate · <b>A</b> auto-present · <b>S</b> notes</div>
+
+<div class="notes" id="notes">
+  <div class="h"><span>Narration</span><span id="noteIdx">1 / 15</span></div>
+  <div class="t" id="noteText"></div>
+</div>
+
+<div class="ctl">
+  <button class="btn" onclick="go(-1)">‹ Back</button>
+  <button class="btn" onclick="go(1)">Next ›</button>
+  <button class="btn" id="play" onclick="playPause()">▶ Narrate</button>
+  <button class="btn present" id="present" onclick="togglePresent()">🎬 Auto-present</button>
+  <button class="btn" onclick="toggleNotes()">📝 Notes</button>
+  <div class="spacer"></div>
+  <span class="muted" style="font-size:12px">Voice</span>
+  <select id="voice"></select>
+  <span class="muted" style="font-size:12px">Speed</span>
+  <input id="rate" type="range" min="0.7" max="1.3" step="0.05" value="1" style="width:110px">
+  <span class="count" id="count">1 / 15</span>
+</div>
+
+<script>
+  const NARRATION = [
+    `Welcome. This is DNSTAP2, told from A to Z. It captures DNS query telemetry from InfoBlox NIOS using dnstap, and streams it to two receivers — Vector and DNS-collector — and on to Splunk, Prometheus and Grafana. It's always on, it runs out of band so it doesn't slow DNS down, and it's built from native binaries with no Docker and no Java. Over the next few minutes I'll follow the data from a single query all the way to a filtered row in Splunk, and I'll show you a real failure we found and fixed along the way.`,
+    `First, why build this. Traditional DNS query logging runs inside the resolution path, so every single query pays a performance tax. It's heavy enough that teams turn it on only to chase a problem and then turn it back off — which means the data you need usually isn't being collected when an incident actually happens. The answer isn't a faster log; it's getting the copy out of the resolution path entirely.`,
+    `That's what dnstap does. The DNS server emits a structured copy of every query and response to a side channel, out of band, with negligible impact on resolution. Because it's so cheap, it's safe to leave on permanently. This project exists to replace reactive, performance-degrading query logging with always-on, out-of-band dnstap telemetry.`,
+    `Here's the whole pipeline at a glance. On the left, InfoBlox NIOS emits a dnstap event for every query and response. That travels over Frame Streams — a binary, length-framed transport — over T-C-P, into two receivers running side by side: Vector on port six thousand, and DNS-collector on port six thousand and one. From there it fans out to three destinations: Splunk for forensics and audit in the mi_dhcp index, Prometheus for metrics, and Grafana for dashboards. Four stages — source, transport and receiver, storage, and visualization — and every box is a native binary.`,
+    `Let's look at the wire. dnstap travels as Frame Streams carrying a protobuf payload — client I-P and port, query name and type, response code, timing, and the operation: client-facing versus recursive. The DNS server dials into the receiver, so it's a single, unidirectional firewall rule on T-C-P six thousand or six thousand and one. By default NIOS sends this out its LAN1 port; enabling the dedicated management port lets you keep telemetry off the production data plane.`,
+    `A key design choice: there are two receivers, on purpose. Vector and DNS-collector run as independent services on distinct ports, users, and paths — so you can A-B them, or fall back to one instantly. In Splunk they're tagged with different source values — dnstap colon vector, and dnstap colon dnscollector — and that source field is the reliable key every dashboard splits on. We keep them deliberately separate; we don't collapse them.`,
+    `Turning it on, on the InfoBlox side, is careful by design. A NIOS member has exactly one dnstap destination, so you point it at the collector and enable the legs you want — client queries and responses, and the resolver leg for recursion visibility; authoritative is left off. Because WAPI field names vary by NIOS build, the script discovers them from the schema, snapshots current state for rollback, and stays in dry-run until you pass apply.`,
+    `Now the Splunk path. In this deployment the indexer only exposes an S2S forwarder input, so a Splunk Universal Forwarder bridges the gap: each receiver writes NIOS-style text lines to a log file, the forwarder monitors those files and ships them over S2S into the mi_dhcp index. The forwarder is shared-safe — it routes only the dnstap monitors and leaves the box's other forwarding untouched. Both receivers land in one index, kept distinct by their source tag.`,
+    `Here's the A-B in motion. Feed both ports the same traffic and watch the counts climb together — identical decoding, two different engines. The search at the bottom is exactly how you confirm it: pull both sources from mi_dhcp, label each as Vector or DNS-collector, and count by receiver with the last-seen time. Two rows, both fresh, means both receivers are healthy end to end.`,
+    `On top of that data sit three dashboards — pick by which index your events land in. The overview board is for the flat-json path with native fields. The A-B overview and the filterable board both read the mi_dhcp text path; they parse the NIOS line with search-time regular expressions, so they need no configuration on the indexer, and they correctly handle both the client and resolver legs so counts aren't inflated.`,
+    `The filterable board lets you slice everything at once. Every panel obeys the same tokens, so you can flip Receiver to isolate Vector or DNS-collector, set the DNS leg to client-facing so per-second rates aren't doubled by the recursion leg, and narrow by domain or client I-P. One picker, the whole board re-filters.`,
+    `And here's a real failure we hit — and fixed. Vector was active and listening, but Splunk showed zero Vector events. The smoking gun was in the socket state: the listen queue showed Recv-Q one twenty-nine against a backlog of one twenty-eight. The accept queue had overflowed, so Vector stopped accepting new connections and silently dropped the frames. The fix was a clean restart, which drained the queue back to zero — and the Vector events immediately started flowing. We documented it and added a regression test, so next time it's a thirty-second fix, not an hour of debugging.`,
+    `A word on how it's built. No containers, no Java, and stdlib-only Python orchestration. The installers detect the host and adapt: on RHEL 7, with its older glibc, they automatically pick the musl build of Vector; and they trim systemd directives that older systemd versions can't parse. Secrets come only from environment variables, never committed, and every InfoBlox write is dry-run and snapshotted first. It's covered by forty-four tests that run against fixtures — no real RHEL 7 or macOS host needed.`,
+    `Taking it with you is easy. The whole thing lives on Marriott git — clone it, and you have everything. The dashboards need no tooling at all; they're just XML you import into Splunk, either through the UI or with a single REST call. And on a clean checkout you can bootstrap a virtual environment and run the test suite to confirm it's intact.`,
+    `To sum up, A to Z. Always-on, out-of-band telemetry that replaces reactive query logging. Two receivers by design — Vector and DNS-collector — compared and filtered on the source field. Splunk-native, in the mi_dhcp index, with three dashboards you can slice any way. Battle-tested, with a real failure found, fixed, and regression-tested. Native and portable, from RHEL 7 to modern Linux, with one firewall rule. From a single DNS query on InfoBlox NIOS to a filtered row in Splunk — continuous, out of band, and native. Thank you.`
+  ];
+
+  const slides=[...document.querySelectorAll('.slide')];
+  const dots=document.getElementById('dots');
+  const notes=document.getElementById('notes');
+  let i=0;
+
+  slides.forEach((_,n)=>{const d=document.createElement('i');d.onclick=()=>set(n);dots.appendChild(d);});
+
+  // floating background packets on the title
+  (function(){const fx=document.getElementById('bgfx');if(!fx)return;
+    for(let n=0;n<26;n++){const s=document.createElement('i');
+      s.style.left=(Math.random()*100)+'%';s.style.bottom='-10px';
+      s.style.animationDelay=(Math.random()*7)+'s';s.style.animationDuration=(5+Math.random()*5)+'s';
+      const c=['#36d1c4','#1f9bff','#3ddc84','#7c9cff'][n%4];s.style.background=c;s.style.boxShadow='0 0 10px '+c;
+      fx.appendChild(s);}
+  })();
+
+  // ---- speech synthesis ----
+  const synth = window.speechSynthesis;
+  let voices=[], chosen=null, rate=1.0, presenting=false, token=0;
+  function scoreVoice(v){const n=(v.name||'').toLowerCase(), l=(v.lang||'').toLowerCase();let s=0;
+    if(l==='en-us'||l==='en_us')s+=6;else if(l.indexOf('en')===0)s+=2;
+    if(/natural|neural|online/.test(n))s+=4;
+    if(/aria|jenny|guy|michelle|ana|christopher|eric|roger|steffan|davis|jane|nancy/.test(n))s+=3;
+    if(/google us english/.test(n))s+=3; if(/zira|david|mark/.test(n))s+=1; return s;}
+  function loadVoices(){const all=synth?synth.getVoices():[];
+    voices=all.filter(v=>/^en/i.test(v.lang)).sort((a,b)=>scoreVoice(b)-scoreVoice(a));
+    const sel=document.getElementById('voice');sel.innerHTML='';
+    if(!voices.length){const o=document.createElement('option');o.textContent='(no voice — browser TTS off)';sel.appendChild(o);chosen=null;return;}
+    voices.forEach((v,n)=>{const o=document.createElement('option');o.value=n;o.textContent=v.name+' · '+v.lang;sel.appendChild(o);});
+    chosen=voices[0];sel.value='0';sel.onchange=()=>{chosen=voices[+sel.value]||null;};}
+  if(synth){synth.onvoiceschanged=loadVoices;loadVoices();}else{loadVoices();}
+
+  function setPlayBtn(){const b=document.getElementById('play');const on=synth&&synth.speaking&&!synth.paused;
+    b.textContent=on?'⏸ Pause':'▶ Narrate';b.classList.toggle('on',!!on);notes.classList.toggle('speaking',!!on);}
+  function updatePresentBtn(){const b=document.getElementById('present');
+    b.classList.toggle('on',presenting);b.textContent=presenting?'■ Stop present':'🎬 Auto-present';}
+
+  function speakSlide(){if(!synth)return;const my=++token;synth.cancel();
+    const u=new SpeechSynthesisUtterance(NARRATION[i]||'');
+    if(chosen)u.voice=chosen;u.lang=(chosen&&chosen.lang)||'en-US';u.rate=rate;u.pitch=1.0;u.volume=1.0;
+    u.onstart=setPlayBtn;u.onerror=setPlayBtn;
+    u.onend=function(){setPlayBtn();if(my!==token)return;
+      if(presenting){if(i<slides.length-1){set(i+1,true);}else{presenting=false;updatePresentBtn();}}};
+    synth.speak(u);setTimeout(setPlayBtn,60);}
+  function playPause(){if(!synth)return;
+    if(synth.speaking&&!synth.paused){synth.pause();}
+    else if(synth.paused){synth.resume();} else {speakSlide();} setTimeout(setPlayBtn,60);}
+  function togglePresent(){presenting=!presenting;updatePresentBtn();
+    if(presenting){speakSlide();}else{token++;if(synth)synth.cancel();setPlayBtn();}}
+
+  function updateNotes(){document.getElementById('noteText').textContent=NARRATION[i]||'';
+    document.getElementById('noteIdx').textContent=(i+1)+' / '+slides.length;}
+  function toggleNotes(){notes.classList.toggle('show');}
+
+  // ---- per-slide animation hooks ----
+  let raceTimer=null, queueTimer=null;
+  function stopAnims(){if(raceTimer){clearInterval(raceTimer);raceTimer=null;} if(queueTimer){clearInterval(queueTimer);queueTimer=null;}}
+  function startRace(){const fV=document.getElementById('raceV'),fD=document.getElementById('raceD'),
+      nV=document.getElementById('numV'),nD=document.getElementById('numD');if(!fV)return;
+    let v=0,d=0;const tgt=100;
+    raceTimer=setInterval(()=>{v=Math.min(tgt,v+Math.random()*5+2);d=Math.min(tgt,d+Math.random()*5+2.4);
+      fV.style.width=(6+v*0.9)+'%';fD.style.width=(6+d*0.9)+'%';
+      nV.textContent=Math.round(v*64);nD.textContent=Math.round(d*68);
+      if(v>=tgt&&d>=tgt){v=0;d=0;}},120);}
+  function startQueue(){const q=document.getElementById('queue'),val=document.getElementById('qval'),
+      stat=document.getElementById('qstat');if(!q)return;q.innerHTML='';
+    const N=44;const slots=[];for(let n=0;n<N;n++){const s=document.createElement('div');s.className='slot';q.appendChild(s);slots.push(s);}
+    let k=0,phase='fill';
+    queueTimer=setInterval(()=>{
+      if(phase==='fill'){if(k<N){slots[k].className='slot '+(k>=N-3?'over':'fill');val.textContent=90+k;
+          if(k>=N-3){stat.textContent='WEDGED ✘ — Recv-Q > backlog';stat.className='bad';}k++;}
+        else{phase='hold';let h=0;const hold=setInterval(()=>{if(++h>10){clearInterval(hold);phase='drain';}},120);}}
+      else if(phase==='drain'){stat.textContent='restart → draining';stat.className='ok';
+        for(const s of slots)s.className='slot';k=0;val.textContent='0';
+        let h=0;const hold=setInterval(()=>{if(++h>12){clearInterval(hold);stat.textContent='accepting ✔';phase='fill';}},120);}
+    },130);}
+
+  function set(n,fromPresent){i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,k)=>s.classList.toggle('active',k===i));
+    [...dots.children].forEach((d,k)=>d.classList.toggle('on',k===i));
+    document.getElementById('bar').style.width=((i+1)/slides.length*100)+'%';
+    document.getElementById('count').textContent=(i+1)+' / '+slides.length;
+    updateNotes();token++;if(synth)synth.cancel();setPlayBtn();
+    stopAnims(); if(i===8)startRace(); if(i===11)startQueue();
+    if(presenting){setTimeout(speakSlide,fromPresent?450:250);}}
+  function go(d){set(i+d);}
+
+  const rng=document.getElementById('rate');
+  rng.addEventListener('input',()=>{rate=+rng.value;if(synth&&synth.speaking){const wasPresent=presenting;synth.cancel();speakSlide();presenting=wasPresent;}});
+
+  document.addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();go(1);}
+    else if(e.key==='ArrowLeft'){go(-1);}
+    else if(e.key.toLowerCase()==='n'){playPause();}
+    else if(e.key.toLowerCase()==='a'){togglePresent();}
+    else if(e.key.toLowerCase()==='s'){toggleNotes();}
+    else if(e.key==='Home'){set(0);} else if(e.key==='End'){set(slides.length-1);}});
+
+  set(0);
+</script>
+</body>
+</html>
