@@ -174,19 +174,29 @@ only recurring action is producing dnstap:
 ### 6.2 Optional system-health feed (SNMP, separate from dnstap)
 
 dnstap answers "who queried what"; it says nothing about whether the member is
-healthy. An **optional** collector (`scripts/poc_health_snmp.py`) closes that gap
-without a second pipeline: it polls CPU / memory / swap / disk / load / uptime
-over SNMP (shelling to net-snmp `snmpget` — no Python SNMP dependency; `--self`
-reads the local `/proc` for the collector box or for testing) and appends Splunk
-`key=value` lines to a file the same UF monitors. It lands in the **same
-`mi_dhcp` index** but under a distinct `sourcetype=infoblox:health` /
-`source=infoblox:health`, so it never overlaps the dnstap (`infoblox:dns`)
-searches. OIDs default to UCD-SNMP-MIB + HOST-RESOURCES-MIB (answered by InfoBlox
-NIOS and any net-snmp host) and are each env-overridable for builds that prefer
-the InfoBlox enterprise (`.7779`) MIB. `install_health_snmp.sh` runs it as a
-persistent systemd service; the `infoblox_system_health.xml` dashboard renders it
-like the InfoBlox Grid Manager "System" panel (gauges + trends + per-member
-status). Being key=value, every field auto-extracts — no indexer props/transforms.
+healthy or whether its **DNS service is even up**. An **optional** collector
+(`scripts/poc_health_snmp.py`) closes that gap without a second pipeline: it polls
+SNMP (shelling to net-snmp — no Python SNMP dependency) and appends Splunk
+`key=value` lines to a file the same UF monitors, landing in the **same `mi_dhcp`
+index** under a distinct `sourcetype=infoblox:health` / `source=infoblox:health`
+so it never overlaps the dnstap (`infoblox:dns`) searches.
+
+Default `--profile infoblox` reads the **InfoBlox enterprise MIB** (`.7779`),
+confirmed against the field-tested `check_infoblox` tool and the published MIB:
+CPU/mem/swap usage, **per-service status** via the `ibServiceName`/`ibServiceStatus`
+table (dns, dhcp, ntp, dns-cache-acceleration, threat-protection, replication,
+raid, fans, power, temp — 61 service types, states working/warning/failed/
+inactive/unknown), CPU temperature, and replication/HA. `health_status` rolls up
+the worst of resource usage **and** service state. DNS query rate/latency are
+deliberately **not** pulled over SNMP — dnstap already provides them, far more
+richly; SNMP's unique value is resource + service + hardware health. `--profile ucd`
+covers generic net-snmp hosts; `--self` reads `/proc` (collector box / tests). All
+OIDs are env-overridable. A **targets file** (`host[,community[,member[,profile]]]`)
+lets one service poll the whole fleet of dnstap-sending members, tagging each line
+with `member=` so it correlates with the dnstap `member`. `install_health_snmp.sh`
+runs it as a persistent systemd service; `infoblox_system_health.xml` renders it
+like the InfoBlox Grid Manager "System" panel (gauges + per-service table +
+trends). Being key=value, every field auto-extracts — no indexer props/transforms.
 
 ## 7. Security posture
 

@@ -1,6 +1,6 @@
 <form version="1.1" theme="dark">
   <label>InfoBlox System Health (SNMP)</label>
-  <description>System health for InfoBlox members / collector hosts, ingested via SNMP by scripts/poc_health_snmp.py and shipped to index=mi_dhcp (sourcetype=infoblox:health). Mirrors the InfoBlox Grid Manager System panel: CPU, Memory, Swap, Disk, load and uptime. Every key=value is auto-extracted — no props/transforms needed.</description>
+  <description>System health for InfoBlox members / collector hosts, ingested via SNMP by scripts/poc_health_snmp.py and shipped to index=mi_dhcp (sourcetype=infoblox:health). Mirrors the InfoBlox Grid Manager System panel: CPU / Memory / Swap / Disk gauges, CPU temperature, replication &amp; HA status, and per-service status (dns / dhcp / ntp / dns-cache-acceleration / threat-protection / raid / fans / …) from the InfoBlox enterprise MIB. Every key=value is auto-extracted — no props/transforms needed.</description>
 
   <fieldset submitButton="false" autoRun="true">
     <input type="time" token="tspan" searchWhenChanged="true">
@@ -109,7 +109,96 @@
     </panel>
   </row>
 
-  <!-- ── Row 2: CPU + Memory trends ───────────────────────────────────────── -->
+  <!-- ── Row 2: InfoBlox-specific tiles (enterprise MIB) ──────────────────── -->
+  <row>
+    <panel>
+      <title>Services failed</title>
+      <single>
+        <search>
+          <query>index=mi_dhcp sourcetype="infoblox:health" member=$member$
+| stats latest(services_failed) as f by member | stats sum(f) as failed | fields failed</query>
+          <earliest>$tspan.earliest$</earliest><latest>$tspan.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="colorMode">block</option>
+        <option name="useColors">1</option>
+        <option name="rangeColors">["0x53a051","0xdc4e41"]</option>
+        <option name="rangeValues">[1]</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Services warning</title>
+      <single>
+        <search>
+          <query>index=mi_dhcp sourcetype="infoblox:health" member=$member$
+| stats latest(services_warning) as w by member | stats sum(w) as warning | fields warning</query>
+          <earliest>$tspan.earliest$</earliest><latest>$tspan.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="colorMode">block</option>
+        <option name="useColors">1</option>
+        <option name="rangeColors">["0x53a051","0xf8be34"]</option>
+        <option name="rangeValues">[1]</option>
+      </single>
+    </panel>
+    <panel>
+      <title>CPU temperature (°C)</title>
+      <single>
+        <search>
+          <query>index=mi_dhcp sourcetype="infoblox:health" member=$member$
+| stats max(cpu_temp_c) as v | eval v=round(v,0) | fields v</query>
+          <earliest>$tspan.earliest$</earliest><latest>$tspan.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="colorMode">block</option>
+        <option name="unit">°C</option>
+        <option name="useColors">1</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[60,75]</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Replication / HA (latest)</title>
+      <table>
+        <search>
+          <query>index=mi_dhcp sourcetype="infoblox:health" member=$member$
+| stats latest(repl_status) as Replication latest(ha_status) as HA by member
+| rename member as Member | sort Member</query>
+          <earliest>$tspan.earliest$</earliest><latest>$tspan.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <format type="color" field="Replication">
+          <colorPalette type="map">{"Online":#1a7a3e,"Offline":#a02622}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ── Row 3: per-service status (the InfoBlox node view) ────────────────── -->
+  <row>
+    <panel>
+      <title>Service status by member (dns / dhcp / ntp / cache-accel / threat-protection / …)</title>
+      <table>
+        <search>
+          <query>index=mi_dhcp sourcetype="infoblox:health" member=$member$
+| stats latest(svc_*) as svc_* by member
+| untable member service status
+| eval Service=replace(service,"^svc_","")
+| where isnotnull(status) AND status!=""
+| table member Service status
+| rename member as Member, status as Status | sort Member Service</query>
+          <earliest>$tspan.earliest$</earliest><latest>$tspan.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">25</option>
+        <format type="color" field="Status">
+          <colorPalette type="map">{"working":#1a7a3e,"warning":#8a6d1a,"failed":#a02622,"inactive":#3a4a6a,"unknown":#555}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ── Row 4: CPU + Memory trends ───────────────────────────────────────── -->
   <row>
     <panel>
       <title>CPU used % over time</title>

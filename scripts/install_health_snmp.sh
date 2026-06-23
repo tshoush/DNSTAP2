@@ -11,23 +11,32 @@
 #   HEALTH_LOG_PATH=/var/log/dnstap-health/health.log sudo -E ./scripts/install_splunk_uf.sh
 # (this script prints that reminder at the end).
 #
-# Modes:
-#   HEALTH_MODE=self           collect THIS host's metrics from /proc (no SNMP)
-#   HEALTH_MODE=snmp           poll HEALTH_TARGET via SNMP (default if TARGET set)
+# Modes (auto-selected; override with HEALTH_MODE):
+#   fleet   poll every member in HEALTH_TARGETS_FILE via SNMP   (if file set)
+#   snmp    poll one HEALTH_TARGET via SNMP                      (if target set)
+#   self    collect THIS host's metrics from /proc (no SNMP)    (otherwise)
 #
 # Tunables (env):
-#   HEALTH_MODE       self | snmp                 (default: snmp if HEALTH_TARGET set, else self)
-#   HEALTH_TARGET     SNMP agent host/IP          (InfoBlox member or net-snmp host)
-#   SNMP_COMMUNITY    SNMPv2c community           (default: public)
-#   HEALTH_MEMBER     member/node label in lines  (default: HEALTH_TARGET or hostname)
-#   HEALTH_INTERVAL   seconds between polls        (default: 60)
+#   HEALTH_TARGETS_FILE  file of host[,community[,member[,profile]]] lines (FLEET — point
+#                        it at every DNS server that sends dnstap)
+#   HEALTH_TARGET     single SNMP agent host/IP (InfoBlox member or net-snmp host)
+#   HEALTH_PROFILE    infoblox (enterprise MIB: CPU/mem/swap + per-service status +
+#                     temp + replication) | ucd (generic net-snmp)   (default: infoblox)
+#   SNMP_COMMUNITY    SNMPv2c community            (default: public)
+#   HEALTH_MEMBER     member/node label in lines   (default: HEALTH_TARGET or hostname)
+#   HEALTH_INTERVAL   seconds between polls         (default: 60)
 #   HEALTH_LOG_PATH   output log file              (default: /var/log/dnstap-health/health.log)
 #   HEALTH_USER       service user                 (default: existing 'dnscollector' or 'root')
-#   OID_* / *_OID     override individual OIDs (passed through to the collector)
+#   OID_* / OID_IB_*  override individual OIDs (passed through to the collector)
 #
 # Usage (RHEL 7.9 POC box, after git pull):
+#   # whole fleet of dnstap-sending InfoBlox members:
+#   HEALTH_TARGETS_FILE=/etc/dnstap-health/targets.csv SNMP_COMMUNITY=public \
+#       sudo -E ./scripts/install_health_snmp.sh
+#   # one member:
 #   HEALTH_TARGET=172.25.15.234 SNMP_COMMUNITY=public sudo -E ./scripts/install_health_snmp.sh
-#   HEALTH_MODE=self sudo -E ./scripts/install_health_snmp.sh        # monitor the collector box itself
+#   # the collector box itself (no SNMP):
+#   HEALTH_MODE=self sudo -E ./scripts/install_health_snmp.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +45,12 @@ REPO_DIR="$(dirname "$SCRIPT_DIR")"
 . "$SCRIPT_DIR/poc_common.sh"
 
 HEALTH_TARGET="${HEALTH_TARGET-}"
-HEALTH_MODE="${HEALTH_MODE:-$([ -n "$HEALTH_TARGET" ] && echo snmp || echo self)}"
+HEALTH_TARGETS_FILE="${HEALTH_TARGETS_FILE-}"
+HEALTH_PROFILE="${HEALTH_PROFILE:-infoblox}"   # infoblox (enterprise MIB) | ucd
+# mode: fleet (targets file) > snmp (single target) > self
+if [ -n "$HEALTH_TARGETS_FILE" ]; then HEALTH_MODE="${HEALTH_MODE:-fleet}"
+elif [ -n "$HEALTH_TARGET" ]; then HEALTH_MODE="${HEALTH_MODE:-snmp}"
+else HEALTH_MODE="${HEALTH_MODE:-self}"; fi
 SNMP_COMMUNITY="${SNMP_COMMUNITY:-public}"
 HEALTH_INTERVAL="${HEALTH_INTERVAL:-60}"
 HEALTH_LOG_PATH="${HEALTH_LOG_PATH:-/var/log/dnstap-health/health.log}"
@@ -50,13 +64,22 @@ COLLECTOR="$SCRIPT_DIR/poc_health_snmp.py"
 PYBIN="$(find_python "$REPO_DIR")" || { echo "ERROR: no python3 (>=3.6). Set PYTHON=/path."; exit 1; }
 echo "==> python: $PYBIN"
 
-if [ "$HEALTH_MODE" = "snmp" ]; then
-  [ -n "$HEALTH_TARGET" ] || { echo "ERROR: HEALTH_MODE=snmp needs HEALTH_TARGET=<host>."; exit 1; }
-  command -v snmpget >/dev/null 2>&1 || {
-    echo "ERROR: snmpget not found. Install net-snmp-utils:";
+need_snmp() {
+  command -v snmpget >/dev/null 2>&1 && command -v snmpwalk >/dev/null 2>&1 || {
+    echo "ERROR: net-snmp not found. Install it:";
     echo "       sudo yum install -y net-snmp-utils    # RHEL/CentOS"; exit 1; }
-  SRC_ARGS="--target $HEALTH_TARGET --community $SNMP_COMMUNITY --member $HEALTH_MEMBER"
-  echo "==> mode: SNMP poll of $HEALTH_TARGET (community: $SNMP_COMMUNITY) as '$HEALTH_MEMBER'"
+}
+
+if [ "$HEALTH_MODE" = "fleet" ]; then
+  [ -f "$HEALTH_TARGETS_FILE" ] || { echo "ERROR: HEALTH_TARGETS_FILE '$HEALTH_TARGETS_FILE' not found."; exit 1; }
+  need_snmp
+  SRC_ARGS="--targets-file $HEALTH_TARGETS_FILE --community $SNMP_COMMUNITY --profile $HEALTH_PROFILE"
+  echo "==> mode: FLEET from $HEALTH_TARGETS_FILE (default profile: $HEALTH_PROFILE)"
+elif [ "$HEALTH_MODE" = "snmp" ]; then
+  [ -n "$HEALTH_TARGET" ] || { echo "ERROR: HEALTH_MODE=snmp needs HEALTH_TARGET=<host>."; exit 1; }
+  need_snmp
+  SRC_ARGS="--target $HEALTH_TARGET --community $SNMP_COMMUNITY --member $HEALTH_MEMBER --profile $HEALTH_PROFILE"
+  echo "==> mode: SNMP poll of $HEALTH_TARGET ($HEALTH_PROFILE MIB) as '$HEALTH_MEMBER'"
 else
   SRC_ARGS="--self --member $HEALTH_MEMBER"
   echo "==> mode: self (/proc) as '$HEALTH_MEMBER'"

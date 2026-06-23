@@ -63,10 +63,10 @@ sudo -E ./scripts/poc_splunk_bringup.sh   # ONE TIME: both receivers + UF -> mi_
 ./scripts/poc_simulate_dnstap.sh          # recurring: feeds :6000 + :6001, no root, no re-install
 sudo -E ./scripts/poc_enable_vector.sh    # add Vector to an existing DC-only box + write diagnostics/poc-vector-report.txt
 
-# OPTIONAL system-health add-on (CPU/mem/swap/disk via SNMP -> same mi_dhcp index)
+# OPTIONAL system+service-health add-on (InfoBlox enterprise MIB -> same mi_dhcp index)
 python3 scripts/poc_health_snmp.py --self --stdout                 # one sample, no install
-HEALTH_TARGET=<member> SNMP_COMMUNITY=public sudo -E ./scripts/install_health_snmp.sh
-HEALTH_LOG_PATH=/var/log/dnstap-health/health.log sudo -E ./scripts/install_splunk_uf.sh  # ship it
+HEALTH_TARGETS_FILE=/etc/dnstap-health/targets.csv sudo -E ./scripts/install_health_snmp.sh  # fleet
+HEALTH_LOG_PATH=/var/log/dnstap-health/health.log sudo -E ./scripts/install_splunk_uf.sh      # ship it
 ```
 
 POC scripts are Python-3.6-safe (RHEL 7.9 stock python3) and share
@@ -80,12 +80,16 @@ installer is shared-forwarder-safe — it routes only the dnstap monitors via
 `[tool.ruff.lint.per-file-ignores]` — keep new py3.6 scripts there, not littered with `# noqa`.
 
 **System health is a separate feed, not dnstap.** `scripts/poc_health_snmp.py`
-ingests CPU/mem/swap/disk/load/uptime via SNMP (`snmpget`; `--self` reads `/proc`)
-and emits Splunk `key=value` lines under a distinct `sourcetype=infoblox:health` /
-`source=infoblox:health` in the *same* `mi_dhcp` index — so it coexists with the
-dnstap `infoblox:dns` data without overlapping searches. OIDs are env-overridable
-(`OID_*`), defaulting to UCD-SNMP-MIB + HOST-RESOURCES-MIB. Dashboard:
-`splunk/infoblox_system_health.xml`; tests: `tests/test_health_snmp.py`.
+emits Splunk `key=value` lines under a distinct `sourcetype=infoblox:health` /
+`source=infoblox:health` in the *same* `mi_dhcp` index — coexists with the dnstap
+`infoblox:dns` data without overlapping searches. Default `--profile infoblox`
+reads the **InfoBlox enterprise MIB** (`.7779`): CPU/mem/swap %, per-service status
+(`svc_<name>` from the `ibServiceName`/`ibServiceStatus` walk), CPU temp,
+replication/HA. `--profile ucd` = generic net-snmp; `--self` = local `/proc`.
+DNS rate/latency are deliberately left to dnstap. `--targets-file`
+(`host[,community[,member[,profile]]]`) polls the whole fleet. All OIDs
+env-overridable (`OID_*`, `OID_IB_*`). Dashboard: `splunk/infoblox_system_health.xml`;
+sample fleet list: `scripts/health-targets.example.csv`; tests: `tests/test_health_snmp.py`.
 
 The `dnstap2` console script (`dnstap2 --tcp 0.0.0.0:6000 --sink stdout`) is the debug collector — see `src/dnstap2/cli.py` for sinks (`stdout`, `jsonl`, `splunk`).
 

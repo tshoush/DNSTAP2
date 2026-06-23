@@ -181,3 +181,88 @@ def test_snmp_get_missing_binary(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(h.shutil, "which", lambda _name: None)
     with pytest.raises(RuntimeError, match="net-snmp"):
         h.snmp_get("10.0.0.1", "public", "2c", [".1.2.3"])
+
+
+# ── InfoBlox enterprise profile ────────────────────────────────────────────
+def test_parse_ib_services_pairs_name_and_status() -> None:
+    name_rows = [
+        (h.IB_SVC_NAME + ".1", "2"),    # dns
+        (h.IB_SVC_NAME + ".2", "1"),    # dhcp
+        (h.IB_SVC_NAME + ".3", "50"),   # dns-cache-acceleration
+        (h.IB_SVC_NAME + ".4", "56"),   # threat-protection
+    ]
+    status_rows = [
+        (h.IB_SVC_STATUS + ".1", "1"),  # working
+        (h.IB_SVC_STATUS + ".2", "4"),  # inactive (NOT counted bad)
+        (h.IB_SVC_STATUS + ".3", "2"),  # warning
+        (h.IB_SVC_STATUS + ".4", "3"),  # failed
+    ]
+    svc, failed, warning = h.parse_ib_services(name_rows, status_rows)
+    assert svc["svc_dns"] == "working"
+    assert svc["svc_dhcp"] == "inactive"
+    assert svc["svc_dns_cache_acceleration"] == "warning"
+    assert svc["svc_threat_protection"] == "failed"
+    assert failed == 1 and warning == 1     # inactive dhcp not counted
+
+
+def test_collect_infoblox_full(monkeypatch: pytest.MonkeyPatch) -> None:
+    walks = {
+        h.IB_SYSMON: [(h.IB_BASE + ".8.1.0", "12"), (h.IB_BASE + ".8.2.0", "43"),
+                      (h.IB_BASE + ".8.3.0", "2")],
+        h.IB_REPL_STATUS: [(h.IB_REPL_STATUS + ".1", '"Online"')],
+        h.IB_SVC_NAME: [(h.IB_SVC_NAME + ".1", "2"), (h.IB_SVC_NAME + ".2", "56")],
+        h.IB_SVC_STATUS: [(h.IB_SVC_STATUS + ".1", "1"), (h.IB_SVC_STATUS + ".2", "3")],
+    }
+
+    def fake_walk(target, community, version, oid, timeout=5, retries=1):  # noqa: ANN001
+        return walks.get(oid, [])
+
+    def fake_get(target, community, version, oids, timeout=5, retries=1):  # noqa: ANN001
+        return {h.IB_CPU_TEMP: "CPU_TEMP: 36 C", h.IB_HA_STATUS: "Active",
+                h.SYS_UPTIME: "8640000"}
+
+    monkeypatch.setattr(h, "snmp_walk", fake_walk)
+    monkeypatch.setattr(h, "snmp_get", fake_get)
+
+    metrics, text = h.collect_infoblox("10.0.0.1", "public", "2c", 5, 1)
+    assert metrics["cpu_used_pct"] == 12.0
+    assert metrics["mem_used_pct"] == 43.0
+    assert metrics["swap_used_pct"] == 2.0
+    assert metrics["cpu_temp_c"] == 36.0
+    assert metrics["uptime_s"] == 86400.0
+    assert metrics["services_failed"] == 1.0      # threat-protection failed
+    assert text["ha_status"] == "Active"
+    assert text["repl_status"] == "Online"
+    assert text["svc_dns"] == "working"
+    assert text["svc_threat_protection"] == "failed"
+
+    # the rendered line: services after numerics, status CRIT (a service failed)
+    line = h.format_line(metrics, "dns01", "T", text=text)
+    assert "svc_dns=working" in line and "svc_threat_protection=failed" in line
+    assert "ha_status=Active" in line and "repl_status=Online" in line
+    assert "services_failed=1" in line
+    assert line.endswith("health_status=CRIT")
+
+
+def test_format_line_status_crit_on_failed_service() -> None:
+    line = h.format_line({"cpu_used_pct": 5.0, "services_failed": 2.0}, "m", "T",
+                         text={"svc_dns": "failed"})
+    assert line.endswith("health_status=CRIT")
+
+
+# ── targets file (fleet mode) ──────────────────────────────────────────────
+def test_read_targets_file(tmp_path) -> None:  # noqa: ANN001
+    f = tmp_path / "targets.csv"
+    f.write_text(
+        "# fleet of dnstap-sending members\n"
+        "172.25.15.234\n"
+        "162.130.4.21,corpRO,hdqncdns01\n"
+        "10.0.0.9,,host9,ucd\n"
+        "\n"
+    )
+    rows = h._read_targets(str(f), default_community="public", default_profile="infoblox")
+    assert len(rows) == 3
+    assert rows[0] == {"host": "172.25.15.234", "community": "public",
+                       "member": "172.25.15.234", "profile": "infoblox"}
+    assert rows[1]["community"] == "corpRO" and rows[1]["member"] == "hdqncdns01"
+    assert rows[2]["community"] == "public" and rows[2]["profile"] == "ucd"  # blank -> default

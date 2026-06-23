@@ -238,38 +238,50 @@ be enabled (the installer does this).
 
 ## Optional: InfoBlox system health via SNMP
 
-A separate, optional collector adds **system-health** metrics (CPU, memory,
-swap, disk, load, uptime — what the InfoBlox Grid Manager "System" panel shows)
-to the same `mi_dhcp` index, distinct from the dnstap data by
-`sourcetype=infoblox:health` / `source=infoblox:health`. It polls SNMP (net-snmp
-`snmpget`, no Python SNMP dependency) and writes Splunk `key=value` lines a UF
-monitors — so every field auto-extracts, no props/transforms.
+dnstap tells you *who queried what*; it can't tell you whether the member is
+healthy or whether its **DNS service is even up**. An optional collector closes
+that gap from the same members, polling SNMP and writing Splunk `key=value` lines
+a UF ships to the same `mi_dhcp` index — distinct from dnstap by
+`sourcetype=infoblox:health` / `source=infoblox:health`, so every field
+auto-extracts with no props/transforms.
+
+It uses the **InfoBlox enterprise MIB** (`.7779`) by default (`--profile infoblox`):
+CPU / memory / swap %, **per-service status** (dns, dhcp, ntp,
+dns-cache-acceleration, threat-protection, replication, raid, fans, power, …),
+CPU temperature, and replication / HA status — the InfoBlox Grid Manager "System"
+view. `--profile ucd` polls a generic net-snmp host (CPU/mem/swap/disk/load/uptime),
+and `--self` reads the local `/proc` (collector box, or testing without an agent).
+DNS query rate/latency are intentionally **not** pulled over SNMP — dnstap already
+provides them.
 
 ```bash
-# 1. run the collector as a persistent service (SNMP poll of an InfoBlox member):
-HEALTH_TARGET=172.25.15.234 SNMP_COMMUNITY=public sudo -E ./scripts/install_health_snmp.sh
-#    …or monitor the collector box itself from /proc (no SNMP agent needed):
-HEALTH_MODE=self sudo -E ./scripts/install_health_snmp.sh
+# Fleet — poll EVERY dnstap-sending member (recommended). Edit the example list:
+cp scripts/health-targets.example.csv /etc/dnstap-health/targets.csv   # host[,community[,member[,profile]]]
+HEALTH_TARGETS_FILE=/etc/dnstap-health/targets.csv SNMP_COMMUNITY=public \
+    sudo -E ./scripts/install_health_snmp.sh
 
-# 2. add the UF monitor for the health log (one time):
+#   …or one member:        HEALTH_TARGET=172.25.15.234 SNMP_COMMUNITY=public sudo -E ./scripts/install_health_snmp.sh
+#   …or the collector box:  HEALTH_MODE=self sudo -E ./scripts/install_health_snmp.sh
+
+# add the UF monitor for the health log (one time), then import the dashboard:
 HEALTH_LOG_PATH=/var/log/dnstap-health/health.log sudo -E ./scripts/install_splunk_uf.sh
-
-# 3. import splunk/infoblox_system_health.xml  (Dashboards → Create → Classic → Source)
+#   import splunk/infoblox_system_health.xml  (Dashboards → Create → Classic → Source)
 ```
 
-Quick one-shot test without installing anything (prints a line to stdout):
+One-shot test without installing anything (prints a line to stdout):
 
 ```bash
 python3 scripts/poc_health_snmp.py --self --stdout
-python3 scripts/poc_health_snmp.py --target 172.25.15.234 --community public --member dns01 --stdout
+python3 scripts/poc_health_snmp.py --target 172.25.15.234 --community public --stdout    # infoblox profile
 ```
 
-Each line looks like
-`<ts> member=<node> cpu_used_pct=12.5 mem_used_pct=43.1 swap_used_pct=2.1 disk_used_pct=38.0 load1=0.42 uptime_s=864000 health_status=OK`.
-OIDs default to UCD-SNMP-MIB + HOST-RESOURCES-MIB (answered by InfoBlox NIOS and
-any net-snmp host); override any of them with `OID_CPU_IDLE`, `OID_MEM_TOTAL`, …
-to point at a build's InfoBlox enterprise (`.7779`) leaves instead. Splunk check:
-`index=mi_dhcp sourcetype="infoblox:health" | stats latest(health_status) by member`.
+An InfoBlox line looks like
+`<ts> member=hdqncdns01 cpu_used_pct=18.0 mem_used_pct=61.0 swap_used_pct=4.0 cpu_temp_c=38 services_failed=0 services_warning=1 repl_status=Online ha_status=Active svc_dns=working svc_dhcp=inactive svc_threat_protection=warning health_status=WARN`.
+Every OID is env-overridable (`OID_IB_BASE`, `OID_CPU_IDLE`, …) for builds whose
+leaves differ. `health_status` rolls up the worst of resource usage **and** service
+state (a failed service → `CRIT`). Splunk checks:
+`index=mi_dhcp sourcetype="infoblox:health" | stats latest(health_status) by member`
+and per-service `… | stats latest(svc_*) as svc_* by member`.
 
 ---
 

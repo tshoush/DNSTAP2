@@ -1,0 +1,19 @@
+# DNSTAP2 system-health targets — one InfoBlox member (or host) per line.
+# Point this at every DNS server that sends dnstap, so health lines up with the
+# dnstap `member` field in Splunk.
+#
+# Format:  host[,community[,member[,profile]]]
+#   host       SNMP agent IP / hostname (required)
+#   community  SNMPv2c community        (blank = --community / $SNMP_COMMUNITY)
+#   member     label written as member= (blank = host)
+#   profile    infoblox | ucd           (blank = --profile, default infoblox)
+#
+# Copy to e.g. /etc/dnstap-health/targets.csv and edit. Lines starting with #
+# and blank lines are ignored.
+
+# host             community   member                       profile
+172.25.15.234,     public,     infoblox-poc-01,             infoblox
+162.130.4.21,      public,     hdqncdns01.marriott.com,     infoblox
+162.130.128.97,    public,     iad13ibdns01.marriott.com,   infoblox
+# a generic net-snmp host (e.g. the collector box) uses the ucd profile:
+# 127.0.0.1,       public,     collector-host,              ucd
