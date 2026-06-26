@@ -79,6 +79,13 @@ The `dnstap2` console script (`dnstap2 --tcp 0.0.0.0:6000 --sink stdout`) is the
 
 **WSL2 networking caveat** (not a code issue): InfoBlox dials *into* the receiver, and from the grid master your WSL VM isn't addressable — only the Windows host is. Fix with mirrored networking (Win11 22H2+) or `netsh portproxy`, and set `receiver.advertised_host` to the Windows host LAN IP. See `QUICKSTART.md`.
 
+## Working preferences
+
+- **Lab/RHEL boxes are real LAN hosts reachable by direct SSH** (e.g. `192.168.1.x`, the InfoBlox/ESXi grid). Do **not** fall back to Docker or localhost SSH workarounds (`127.0.0.1`, port `2222`) unless explicitly told to — when a connection fails, fix the real path (creds, firewall, advertised host), don't tunnel around it.
+- **Scope is dnstap/Frame Streams over TCP only.** This pipeline does **not** use DoT/DoH — leave that protocol coverage out unless explicitly asked for it.
+- **Be honest about hard limits.** When a task needs authenticated access to a system you can't reach (or a capability you don't have), say so once and stop — produce a draft/script/instructions instead of looping on redundant attempts or claiming an action you didn't actually perform.
+- **Before pushing, check `git status -sb`** against the remote; the local branch may be behind. Fetch/rebase first to avoid push failures.
+
 ## Marriott git
 
 This repo also lives on `git.marriott.com`. Per the workspace `~/CLAUDE.md`, push there with `~/bin/marriott-git-push.sh <repo> <file-or-dir> "<msg>"`; never inline credentials.
