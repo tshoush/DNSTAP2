@@ -79,11 +79,64 @@ services:
     networks: [dnstap]
     depends_on: [prometheus, loki]
 
+  # ---- Splunk Enterprise (lab) — receives NIOS-format syslog via HEC ----
+  splunk:
+    image: splunk/splunk:9.3
+    container_name: dnstap2-splunk
+    # Splunk publishes amd64 only; on Apple Silicon run it under emulation.
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      SPLUNK_GENERAL_TERMS: "--accept-sgt-current-at-splunk-com"
+      SPLUNK_START_ARGS: "--accept-license"
+      SPLUNK_PASSWORD: "${SPLUNK_PASSWORD:?set SPLUNK_PASSWORD in docker/stack/.env}"
+      SPLUNK_HEC_TOKEN: "${SPLUNK_HEC_TOKEN:?set SPLUNK_HEC_TOKEN in docker/stack/.env}"
+    ports:
+      - "8000:8000"      # Splunk Web UI  (admin / $SPLUNK_PASSWORD)
+      - "8088:8088"      # HTTP Event Collector (Vector ships here)
+      - "5514:5514"      # raw TCP input -> index mi_dhcp (no auth; .50 ships here)
+      - "5514:5514/udp"  # raw UDP/syslog input -> index mi_dhcp (no auth)
+    volumes:
+      - splunk-var:/opt/splunk/var
+      - splunk-etc:/opt/splunk/etc
+    networks: [dnstap]
+    healthcheck:
+      test: ["CMD", "curl", "-skf", "https://localhost:8088/services/collector/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+
+  # ---- Vector — dnstap receiver that emits the InfoBlox/NIOS syslog line ----
+  # Receives dnstap on :6000 (point NIOS here, or use scripts/dnstap_synth.py),
+  # renders each event as the exact NIOS query-log line, and ships it to Splunk
+  # HEC as sourcetype infoblox:dns. Pinned to 0.39.x for VRL parity with the config.
+  vector:
+    image: timberio/vector:0.39.0-debian
+    container_name: dnstap2-vector
+    restart: unless-stopped
+    command: ["--config", "/etc/vector/vector.toml"]
+    environment:
+      SPLUNK_HEC_TOKEN: "${SPLUNK_HEC_TOKEN:?set SPLUNK_HEC_TOKEN in docker/stack/.env}"
+    ports:
+      - "6000:6000"      # dnstap frame-streams in (NIOS or synthetic)
+      - "9598:9598"      # Prometheus metrics (dnstap_*)
+    volumes:
+      - ./vector/vector.toml:/etc/vector/vector.toml:ro
+      - vector-data:/var/lib/vector
+    networks: [dnstap]
+    depends_on:
+      splunk:
+        condition: service_healthy
+
 volumes:
   dnscollector-data:
   prometheus-data:
   loki-data:
   grafana-data:
+  splunk-var:
+  splunk-etc:
+  vector-data:
 
 networks:
   dnstap:
