@@ -1,0 +1,136 @@
+# Vector config for the Docker stack — dnstap receiver that emits the SAME
+# syslog line NIOS produces with native DNS query/response logging, and ships it
+# to the local Splunk container (HEC, sourcetype infoblox:dns).
+#
+# Self-contained (no template vars) so it runs straight from the image. Mirrors
+# templates/vector.toml.tmpl — keep the dnstap_enriched / dnstap_nios_syslog
+# transforms in sync with that template if you change field paths.
+#
+# Pinned to vector 0.39.x VRL semantics (see image tag in docker-compose.yml).
+
+data_dir = "/var/lib/vector"
+
+# ── Source: dnstap frame-streams (from NIOS, or scripts/dnstap_synth.py) ──────
+[sources.dnstap_in]
+type = "dnstap"
+mode = "tcp"
+address = "0.0.0.0:6000"
+max_frame_length = 102400
+
+# ── Source: Vector's own metrics (so /metrics is never empty) ─────────────────
+[sources.internal_metrics]
+type = "internal_metrics"
+
+# ── Transform: enrich + normalize field names ─────────────────────────────────
+[transforms.dnstap_enriched]
+type = "remap"
+inputs = ["dnstap_in"]
+source = '''
+.environment = "lab"
+.dns_vendor  = "infoblox"
+.collector   = "vector"
+
+# NIOS dnstap puts the DNS question under .requestData (ClientQuery) or
+# .responseData (ClientResponse) — coalesce with if/null (path access is
+# infallible in VRL; `?? null` on it is error E651).
+.qname = .responseData.question[0].domainName
+if .qname == null { .qname = .requestData.question[0].domainName }
+.qtype = .responseData.question[0].questionType
+if .qtype == null { .qtype = .requestData.question[0].questionType }
+.rcode  = .responseData.rcodeName
+.client = .sourceAddress
+'''
+
+# ── Transform: render the exact NIOS "named" query/response syslog line ───────
+#   query:    <ts> <member> named[<id>]: client <ip>#<port> (<qname>): query: <qname> IN <type> + (<server-ip>)
+#   response: <ts> <member> named[<id>]: client <ip>#<port> (<qname>): UDP: query: <qname> IN <type> response: NOERROR +A <rr>; <rr>;
+[transforms.dnstap_nios_syslog]
+type = "remap"
+inputs = ["dnstap_enriched"]
+source = '''
+fmt = "%b %e %H:%M:%S"
+syslog_ts, ts_err = format_timestamp(.timestamp, fmt)
+if ts_err != null { syslog_ts = format_timestamp!(now(), fmt) }
+host = to_string(.serverId) ?? ""
+if host == "" { host = "infoblox" }
+client = to_string(.sourceAddress) ?? "0.0.0.0"
+cport  = to_string(.sourcePort) ?? "0"
+server = to_string(.responseAddress) ?? ""
+proto  = upcase(to_string(.socketProtocol) ?? "UDP")
+qname  = to_string(.qname) ?? "."
+if length(qname) > 1 && ends_with(qname, ".") {
+    qname = slice!(qname, 0, length(qname) - 1)
+}
+qclass = .responseData.question[0].class
+if qclass == null { qclass = .requestData.question[0].class }
+qclass = to_string(qclass) ?? "IN"
+qtype  = to_string(.qtype) ?? ""
+
+if .rcode != null {
+    flags = "-"
+    if .responseData.header.rd == true { flags = "+" }
+    if .responseData.header.aa == true { flags = flags + "A" }
+    if .responseData.header.tc == true { flags = flags + "T" }
+    if .responseData.header.ad == true { flags = flags + "D" }
+    rcode = upcase(to_string(.rcode) ?? "NOERROR")
+    rrs = ""
+    if is_array(.responseData.answers) {
+        for_each(array!(.responseData.answers)) -> |_i, rr| {
+            rrs = rrs + " " + (to_string(rr.domainName) ?? "") + " " + (to_string(rr.ttl) ?? "0") + " " + (to_string(rr.class) ?? "IN") + " " + (to_string(rr.recordType) ?? "") + " " + (to_string(rr.rData) ?? "") + ";"
+        }
+    }
+    pid = to_string(.responseData.header.id) ?? "0"
+    .message = syslog_ts + " " + host + " named[" + pid + "]: client " + client + "#" + cport + " (" + qname + "): " + proto + ": query: " + qname + " " + qclass + " " + qtype + " response: " + rcode + " " + flags + rrs
+} else {
+    flags = "-"
+    if .requestData.header.rd == true { flags = "+" }
+    pid = to_string(.requestData.header.id) ?? "0"
+    .message = syslog_ts + " " + host + " named[" + pid + "]: client " + client + "#" + cport + " (" + qname + "): query: " + qname + " " + qclass + " " + qtype + " " + flags + " (" + server + ")"
+}
+'''
+
+# ── Transform: Prometheus counters from the same stream ───────────────────────
+[transforms.dnstap_metrics]
+type = "log_to_metric"
+inputs = ["dnstap_enriched"]
+
+[[transforms.dnstap_metrics.metrics]]
+type = "counter"
+field = "qname"
+name = "queries_total"
+namespace = "dnstap"
+tags.qtype = "{{ qtype }}"
+
+[[transforms.dnstap_metrics.metrics]]
+type = "counter"
+field = "rcode"
+name = "responses_total"
+namespace = "dnstap"
+tags.rcode = "{{ rcode }}"
+
+# ── Sink: Prometheus scrape endpoint (dnstap_* on :9598) ──────────────────────
+[sinks.prom_exporter]
+type = "prometheus_exporter"
+inputs = ["dnstap_metrics", "internal_metrics"]
+address = "0.0.0.0:9598"
+default_namespace = "dnstap"
+
+# ── Sink: Splunk HEC — the NIOS syslog line as raw event, sourcetype infoblox:dns
+[sinks.splunk_hec]
+type = "splunk_hec_logs"
+inputs = ["dnstap_nios_syslog"]
+endpoint = "https://splunk:8088"
+default_token = "${SPLUNK_HEC_TOKEN:-00000000-0000-0000-0000-000000000000}"
+index = "main"
+sourcetype = "infoblox:dns"
+source = "vector-dnstap"
+host_key = "host"
+encoding.codec = "text"
+healthcheck.enabled = false
+tls.verify_certificate = false
+
+# ── Sink: console — so `docker logs dnstap2-vector` shows the NIOS lines live ──
+[sinks.console_syslog]
+type = "console"
+inputs = ["dnstap_nios_syslog"]
+encoding.codec = "text"

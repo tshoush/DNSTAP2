@@ -1,5 +1,14 @@
 # docker/stack — full DNSTAP2 observability stack (Docker Compose)
 
+> **Also includes a Splunk service** (`splunk/splunk`, `linux/amd64`) with a
+> no-auth raw input on `:5514` → index `mi_dhcp` (`sourcetype=infoblox:dns`), a
+> `dnstap_overview` dashboard, and a self-contained `vector` service that emits
+> the exact NIOS syslog format. Admin password + HEC token live in a gitignored
+> `.env` (copy from `.env.example`). The validated lab pipeline (InfoBlox `.222` →
+> Vector on `.50:6000` → this Splunk `mi_dhcp`) and all the InfoBlox/ADP findings
+> are documented in [`../../docs/lab-splunk-mi_dhcp-pipeline.md`](../../docs/lab-splunk-mi_dhcp-pipeline.md)
+> and [`../../docs/infoblox-dnstap-extract.md`](../../docs/infoblox-dnstap-extract.md).
+
 Stands up the **entire receiver + monitoring stack** in containers:
 
 ```
