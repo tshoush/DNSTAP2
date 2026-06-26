@@ -70,6 +70,19 @@ sourcetype = "infoblox:dns"
 source = "vector-dnstap"
 verify_tls = true
 
+[splunk_syslog]
+# Optional, parallel to [splunk] (HEC). Ships the SAME NIOS-style syslog lines to
+# a Splunk RAW tcp/udp data input — no HEC token required. Use this when Splunk
+# ingests via a syslog/raw input (e.g. a no-auth tcp input writing to an index,
+# sourcetype infoblox:dns). This is the path the lab pipeline uses (index
+# mi_dhcp on a :5514 raw input) — see docs/lab-splunk-mi_dhcp-pipeline.md.
+enabled = false
+# Host:port of the Splunk raw input, reachable from the Vector receiver host.
+host = "192.168.1.100"
+port = 5514
+# "tcp" (reliable, recommended) or "udp".
+mode = "tcp"
+
 [dnstap]
 # Which message types to enable on the DNS server. The actual field names
 # in the InfoBlox WAPI may vary by NIOS build — the configure script will

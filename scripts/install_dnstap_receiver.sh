@@ -23,6 +23,10 @@
 #                  syslog query/response log lines, sourcetype infoblox:dns
 #   SPLUNK_HEC_TOKEN / SPLUNK_INDEX (dns_dnstap) / SPLUNK_SOURCETYPE (infoblox:dns)
 #   SPLUNK_VERIFY_TLS (true)
+#   SPLUNK_SYSLOG_ADDR  Splunk RAW tcp/udp input host:port (e.g. 192.168.1.100:5514);
+#                  default "" = no sink. Ships the same NIOS-syslog lines with NO
+#                  HEC token (pair with a no-auth Splunk tcp/udp input writing to
+#                  your index, sourcetype infoblox:dns). SPLUNK_SYSLOG_MODE (tcp).
 set -euo pipefail
 
 VECTOR_VERSION="${VECTOR_VERSION:-0.39.0}"
@@ -36,6 +40,8 @@ SPLUNK_HEC_TOKEN="${SPLUNK_HEC_TOKEN:-}"
 SPLUNK_INDEX="${SPLUNK_INDEX:-dns_dnstap}"
 SPLUNK_SOURCETYPE="${SPLUNK_SOURCETYPE:-infoblox:dns}"
 SPLUNK_VERIFY_TLS="${SPLUNK_VERIFY_TLS:-true}"
+SPLUNK_SYSLOG_ADDR="${SPLUNK_SYSLOG_ADDR:-}"       # Splunk raw tcp/udp input host:port (set to enable)
+SPLUNK_SYSLOG_MODE="${SPLUNK_SYSLOG_MODE:-tcp}"    # tcp (recommended) or udp
 CONFIG=/etc/vector/vector.toml
 BIN=/usr/local/bin/vector
 
@@ -105,6 +111,20 @@ mode = "udp"
 address = "${SYSLOG_ADDR}"
 encoding.codec = "text"
 SYS
+)"
+SPLUNK_SYSLOG_SINK=""
+[ -n "$SPLUNK_SYSLOG_ADDR" ] && SPLUNK_SYSLOG_SINK="$(cat <<SPSYS
+
+# Sink: Splunk RAW tcp/udp input — NIOS-style syslog lines with NO HEC token.
+# Pair with a no-auth Splunk tcp/udp data input writing to your index,
+# sourcetype infoblox:dns (the lab uses index mi_dhcp on a :5514 input).
+[sinks.splunk_syslog]
+type = "socket"
+inputs = ["dnstap_nios_syslog"]
+mode = "${SPLUNK_SYSLOG_MODE}"
+address = "${SPLUNK_SYSLOG_ADDR}"
+encoding.codec = "text"
+SPSYS
 )"
 SPLUNK_SINK=""
 if [ -n "$SPLUNK_HEC_URL" ]; then
@@ -257,6 +277,7 @@ path = "${JSONL_PATH}"
 encoding.codec = "json"
 ${LOKI_SINK}
 ${SYSLOG_SINK}
+${SPLUNK_SYSLOG_SINK}
 ${SPLUNK_SINK}
 EOF
 chown vector:vector "$CONFIG"

@@ -41,6 +41,19 @@ encoding.codec = "text"
 '''
 
 
+SPLUNK_SYSLOG_BLOCK = '''
+[sinks.splunk_syslog]
+type = "socket"
+# NIOS-style syslog lines (see transforms.dnstap_nios_syslog) to a Splunk RAW
+# tcp/udp data input — no HEC token needed. Pair with a Splunk tcp/udp input
+# writing to your index, sourcetype infoblox:dns.
+inputs = ["dnstap_nios_syslog"]
+mode = "{mode}"
+address = "{host}:{port}"
+encoding.codec = "text"
+'''
+
+
 def _splunk_endpoint(hec_url: str) -> str:
     """Vector's splunk_hec_logs wants the BASE URL and appends the collector
     path itself; accept either form in config.toml and strip the path here."""
@@ -68,6 +81,18 @@ def _splunk_block(c: cfgmod.SplunkConfig) -> str:
         source=c.source,
         verify_tls=str(c.verify_tls).lower(),
     )
+
+
+def _splunk_syslog_block(c: cfgmod.SplunkSyslogConfig) -> str:
+    if not c.enabled:
+        return (
+            "# Splunk raw-syslog sink disabled in config.toml "
+            "([splunk_syslog].enabled = false)."
+        )
+    if not c.host:
+        return "# Splunk raw-syslog sink enabled but [splunk_syslog].host is empty."
+    mode = c.mode if c.mode in ("tcp", "udp") else "tcp"
+    return SPLUNK_SYSLOG_BLOCK.format(host=c.host, port=c.port, mode=mode)
 
 
 def _jsonl_block(path: str) -> str:
@@ -104,6 +129,7 @@ def main(argv: list[str] | None = None) -> int:
             "metrics_listen": cfg.vector.metrics_listen,
             "jsonl_sink_block": _jsonl_block(cfg.vector.jsonl_path),
             "splunk_sink_block": _splunk_block(cfg.splunk),
+            "splunk_syslog_sink_block": _splunk_syslog_block(cfg.splunk_syslog),
         },
     )
 

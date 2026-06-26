@@ -68,6 +68,18 @@ class SplunkConfig:
 
 
 @dataclass
+class SplunkSyslogConfig:
+    """Ship NIOS-syslog lines to a Splunk RAW tcp/udp data input (no HEC token).
+    Parallel to [splunk] (HEC); use when Splunk ingests via a syslog/raw input
+    writing to an index, sourcetype infoblox:dns."""
+
+    enabled: bool = False
+    host: str = ""
+    port: int = 5514
+    mode: str = "tcp"  # "tcp" (reliable) or "udp"
+
+
+@dataclass
 class DnstapConfig:
     client_queries: bool = True
     client_responses: bool = True
@@ -84,6 +96,7 @@ class Config:
     vector: VectorConfig = field(default_factory=VectorConfig)
     prometheus: PrometheusConfig = field(default_factory=PrometheusConfig)
     splunk: SplunkConfig = field(default_factory=SplunkConfig)
+    splunk_syslog: SplunkSyslogConfig = field(default_factory=SplunkSyslogConfig)
     dnstap: DnstapConfig = field(default_factory=DnstapConfig)
     source_path: Path = field(default=Path("config.toml"))
 
@@ -162,6 +175,14 @@ def load(path: str | Path = "config.toml") -> Config:
         verify_tls=bool(sp_raw.get("verify_tls", True)),
     )
 
+    ss_raw = raw.get("splunk_syslog", {})
+    splunk_syslog = SplunkSyslogConfig(
+        enabled=bool(ss_raw.get("enabled", False)),
+        host=ss_raw.get("host", ""),
+        port=int(ss_raw.get("port", 5514)),
+        mode=ss_raw.get("mode", "tcp"),
+    )
+
     dnstap = DnstapConfig(**raw.get("dnstap", {}))
 
     return Config(
@@ -170,6 +191,7 @@ def load(path: str | Path = "config.toml") -> Config:
         vector=vector,
         prometheus=prometheus,
         splunk=splunk,
+        splunk_syslog=splunk_syslog,
         dnstap=dnstap,
         source_path=p.resolve(),
     )

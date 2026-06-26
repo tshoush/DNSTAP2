@@ -14,7 +14,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _write_cfg(path: Path, splunk_enabled: bool = False, jsonl_path: str = "/tmp/dnstap.jsonl") -> None:
+def _write_cfg(
+    path: Path,
+    splunk_enabled: bool = False,
+    jsonl_path: str = "/tmp/dnstap.jsonl",
+    splunk_syslog_enabled: bool = False,
+) -> None:
     body = f"""
     [infoblox]
     host = "192.168.1.224"
@@ -37,6 +42,12 @@ def _write_cfg(path: Path, splunk_enabled: bool = False, jsonl_path: str = "/tmp
     enabled = {str(splunk_enabled).lower()}
     hec_url = "https://splunk.example.com:8088/services/collector/event"
     hec_token = "abc"
+
+    [splunk_syslog]
+    enabled = {str(splunk_syslog_enabled).lower()}
+    host = "10.0.0.9"
+    port = 5514
+    mode = "tcp"
     """
     path.write_text(textwrap.dedent(body), encoding="utf-8")
 
@@ -94,6 +105,26 @@ def test_render_vector_config_splunk_enabled(tmp_path: Path) -> None:
     splunk_block = out[out.index("[sinks.splunk_hec]"):]
     assert 'inputs = ["dnstap_nios_syslog"]' in splunk_block
     assert 'encoding.codec = "text"' in splunk_block
+
+
+def test_render_vector_config_splunk_syslog_disabled(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "config.toml"
+    _write_cfg(cfg_path, splunk_syslog_enabled=False)
+    out = _run([sys.executable, "scripts/render_vector_config.py", "--config", str(cfg_path)])
+    assert "[sinks.splunk_syslog]" not in out
+    assert "Splunk raw-syslog sink disabled" in out
+
+
+def test_render_vector_config_splunk_syslog_enabled(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "config.toml"
+    _write_cfg(cfg_path, splunk_syslog_enabled=True)
+    out = _run([sys.executable, "scripts/render_vector_config.py", "--config", str(cfg_path)])
+    assert "[sinks.splunk_syslog]" in out
+    block = out[out.index("[sinks.splunk_syslog]"):]
+    assert 'inputs = ["dnstap_nios_syslog"]' in block
+    assert 'address = "10.0.0.9:5514"' in block
+    assert 'mode = "tcp"' in block
+    assert 'encoding.codec = "text"' in block
 
 
 def test_render_prometheus_config_scrape_target(tmp_path: Path) -> None:

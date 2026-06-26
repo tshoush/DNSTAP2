@@ -178,3 +178,11 @@ inputs = ["dnstap_nios_syslog"]
 mode = "udp"
 address = "127.0.0.1:514"
 encoding.codec = "text"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sink: Splunk RAW tcp/udp input (NIOS-syslog lines, no HEC token). Only emitted
+# if [splunk_syslog].enabled = true in config.toml. This is the path used by the
+# lab pipeline (Splunk index mi_dhcp via a no-auth :5514 input) — see
+# docs/lab-splunk-mi_dhcp-pipeline.md.
+# ─────────────────────────────────────────────────────────────────────────────
+$splunk_syslog_sink_block

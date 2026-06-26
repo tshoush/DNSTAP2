@@ -85,6 +85,36 @@ def test_splunk_token_env_fallback(
     assert cfg.splunk.hec_token == "hec-token-123"
 
 
+def test_splunk_syslog_defaults_and_parse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg_path = tmp_path / "config.toml"
+    # No [splunk_syslog] section -> disabled defaults.
+    _write(cfg_path, '[infoblox]\nhost = "h"\nusername = "u"\npassword = "x"\n')
+    cfg = cfgmod.load(cfg_path)
+    assert cfg.splunk_syslog.enabled is False
+    assert cfg.splunk_syslog.port == 5514
+    assert cfg.splunk_syslog.mode == "tcp"
+
+    _write(
+        cfg_path,
+        """
+        [infoblox]
+        host = "h"
+        username = "u"
+        password = "x"
+
+        [splunk_syslog]
+        enabled = true
+        host = "192.168.1.100"
+        port = 5514
+        mode = "udp"
+        """,
+    )
+    cfg = cfgmod.load(cfg_path)
+    assert cfg.splunk_syslog.enabled is True
+    assert cfg.splunk_syslog.host == "192.168.1.100"
+    assert cfg.splunk_syslog.mode == "udp"
+
+
 def test_find_repo_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Repo root has config.example.toml; pretend tmp_path is the repo root.
     (tmp_path / "config.example.toml").touch()
