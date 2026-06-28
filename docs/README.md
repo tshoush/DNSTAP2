@@ -11,6 +11,13 @@
 | [dnstap-collector-sizing.md](dnstap-collector-sizing.md) | **VM sizing** derived from those measurements — CPU/RAM/disk/network, storage-by-retention tables, and three reference builds (POC / production / HA) |
 | [../scripts/poc/](../scripts/poc/) | **Interactive test harness** that executes the single-server sequential test — `run_test_dnstap.sh`, `run_test_querylog.sh`, `process_results.py` (see its [README](../scripts/poc/README.md)) |
 
+## Meeting: dnstap → Splunk vs. Infoblox Data Connector → Splunk HEC
+| Document | Purpose |
+|---|---|
+| [meeting-dnstap-vs-dataconnector-hec.md](meeting-dnstap-vs-dataconnector-hec.md) | **Decision brief** — reframes the choice as *in-path vs out-of-band capture* (source), not *scp vs HEC* (transport); steelmans both options, four scenarios, realistic scp→HEC expectations, objections & rebuttals |
+| [meeting-slide-outline.md](meeting-slide-outline.md) | **12-slide outline** (~20 min) with speaker notes + backup slides |
+| [infoblox-dataconnector-questions.md](infoblox-dataconnector-questions.md) | **12 questions for Infoblox** whose source-mechanism answer (Q1–4) decides the meeting — does the Data Connector source DNS data in-path or off-path? |
+
 ## Operations & integration
 | Document | Purpose |
 |---|---|
