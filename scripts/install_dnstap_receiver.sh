@@ -96,6 +96,9 @@ encoding.codec = "json"
 labels.job = "dnstap"
 labels.source = "infoblox"
 labels.message_type = "{{ messageType }}"
+# Loki is optional: if it is down/absent, drop its events instead of filling the
+# buffer and backpressure-stalling the mandatory Splunk/jsonl sinks.
+buffer.when_full = "drop_newest"
 LOKI
 )"
 SYSLOG_SINK=""
