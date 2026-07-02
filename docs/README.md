@@ -22,6 +22,7 @@
 | Document | Purpose |
 |---|---|
 | [infoblox-ops-playbook.md](infoblox-ops-playbook.md) | DDI/Ops runbook to enable dnstap on a NIOS member → collector (dry-run → snapshot → apply, validation, rollback, phased rollout) |
+| [firewall-dnstap-verification-runbook.md](firewall-dnstap-verification-runbook.md) | **Firewall + dnstap verification runbook** — ordered tests proving the path from a NIOS member (vNIOS on AWS) to a remote collector: license/config preconditions, receiver readiness, NIOS CLI probes (`traffic_capture`, `show dnstap-stats`), AWS SG/NACL egress, dual-ended tcpdump with an fstrm fault-localization table, marked-query data proof, resilience checks |
 | [SNMP-Integration.md](../SNMP-Integration.md) | Design for adding SNMP (host CPU/mem/disk, traps in/out, InfoBlox ibPlatformOne) to the stack |
 | [firewall-ports.md](firewall-ports.md) · [ports.md](ports.md) · [ports.csv](ports.csv) | Port/firewall matrix for the pipeline |
 | [design.md](design.md) | Pipeline/layering design notes |
